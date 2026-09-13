@@ -149,7 +149,7 @@ function renderReport(r) {
     return rows.length ? `<dl class="ctx">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>` : '';
   };
 
-  const claimHtml = c => `
+  const claimHtml = (c, withClause = true) => `
     <div class="claim${c.endorsed ? '' : ' outside'}">
       <div class="claim-head">
         <span class="relation ${c.relation}">${c.relation}</span>
@@ -158,13 +158,22 @@ function renderReport(r) {
         ${c.endorsed ? '' : '<span class="flag">not endorsed by the contract</span>'}
         <span class="ref">${esc(c.ref)} · filed by ${esc(c.filedBy)}${issueLink(c.source) ? ` · from ${issueLink(c.source)}` : ''}</span>
       </div>
-      <p class="clause-text" style="margin:0">${clause(c.from)}</p>
+      ${withClause ? `<p class="clause-text" style="margin:0">${clause(c.from)}</p>` : ''}
       <p class="rationale" style="margin:0">${esc(c.rationale)}</p>
       ${context(c)}
     </div>`;
 
+  // Under an intent, each clause appears once, with every claim about it beneath: sufficient first.
+  const byClause = claims => [...new Set(claims.map(c => c.from))].map(from => `
+    <div class="claim-group">
+      <p class="clause-text group-clause">${clause(from)}</p>
+      ${claims.filter(c => c.from === from)
+        .sort((a, b) => (b.strength === 'sufficient') - (a.strength === 'sufficient'))
+        .map(c => claimHtml(c, false)).join('')}
+    </div>`).join('');
+
   const order = c => (c.endorsed ? 0 : 2) + (c.active ? 0 : 1);
-  const nodeHtml = node => {
+  const nodeHtml = (node, path = []) => {
     const all = Object.values(r.claims).filter(c => c.to === node.ref).sort((a, b) => order(a) - order(b));
     const tally = [
       [all.filter(c => c.active && c.relation === 'supports').length, 'supporting'],
@@ -179,15 +188,15 @@ function renderReport(r) {
       `<span class="ref">${esc(node.ref)}</span>`,
     ].join('');
     return `
-      <li class="intent">
+      <li class="intent" data-key="${esc([...path, node.ref].join('>'))}">
         <div class="node">
           <span class="cov ${node.coverage}">${node.coverage}</span>
           <span class="statement">${esc(node.statement)}</span>
           <div class="node-meta">${flags}</div>
           ${node.influences.length ? `<p class="bears">Bears on it: ${node.influences.map(i => label(nano(i).from)).join(', ')}</p>` : ''}
-          ${all.length ? `<details class="claims"><summary>${tally || 'claims'}</summary><div class="claim-list">${all.map(claimHtml).join('')}</div></details>` : ''}
+          ${all.length ? `<details class="claims"><summary>${tally || 'claims'}</summary><div class="claim-list">${byClause(all)}</div></details>` : ''}
         </div>
-        ${node.children.length ? `<ul>${node.children.map(nodeHtml).join('')}</ul>` : ''}
+        ${node.children.length ? `<ul>${node.children.map(k => nodeHtml(k, [...path, node.ref])).join('')}</ul>` : ''}
       </li>`;
   };
 
@@ -244,7 +253,11 @@ function renderReport(r) {
       </div>
     </header>`,
     section('intents', 'Intents', 'What the contract claims to satisfy. Open an intent to see the claims behind it, what each depends on, and whether it applies at the current parameter values.',
-      `<ul class="tree">${r.tree.map(nodeHtml).join('')}</ul>`),
+      `<div class="trail" id="trail" aria-label="Where you are in the intents"></div>
+       <div class="intents-flow">
+         <nav class="funnel" id="funnel" aria-label="Where you are in the intents"></nav>
+         <ul class="tree">${r.tree.map(n => nodeHtml(n)).join('')}</ul>
+       </div>`),
     section('asks', 'What it asks of whom', 'Before you say “I do”: the work it binds people to carry out, the rules it binds them to abide by, and the liberties it grants. A rule is only as real as the detection of its breaches, and that detection is work that someone among the signatories has to take on.',
       [['work', 'Work to carry out'], ['abide', 'Rules to abide by'], ['liberty', 'Liberties']].map(([kind, heading]) => {
         const clauses = r.clauses.map(nano).filter(c => c.binding === kind);
@@ -261,7 +274,7 @@ function renderReport(r) {
         <div class="finding">
           <h3>${named(t.clause)}</h3>
           <p style="margin:0">Supports ${t.supports.map(intentText).join(', ') || 'nothing'}; hinders ${t.hinders.map(intentText).join(', ')}.</p>
-        </div>`).join('') + outside.map(claimHtml).join('')) || empty('No tensions, and no outside claims in scope.')),
+        </div>`).join('') + outside.map(c => claimHtml(c)).join('')) || empty('No tensions, and no outside claims in scope.')),
     section('determinants', 'What bears on what', 'Influences recorded without asserting that they are true. Each group that adopts the contract decides which of them it believes.',
       [...new Set(r.influences.map(i => nano(i).to))].map(target => `
         <div class="finding">
@@ -360,9 +373,76 @@ function renderPanel(r) {
     `<li><a href="#${id}"><span>${label}</span><span class="n${n ? '' : ' zero'}">${n}</span></a></li>`).join('');
 }
 
+// ─── The funnel: the chain from a top-level intent down to where you are reading, following as you scroll ─
+
+let shown = null;                  // the report on screen
+const treeIndex = new Map();       // ref → node; an intent with two parents is one node
+const RANK = { gap: 0, thin: 1, claimed: 2 };
+const short = (s, max = 60) => (s = String(s ?? '')).length > max ? `${s.slice(0, max - 1)}…` : s;
+
+// Why an intent has its coverage, from the same inputs evaluate.mjs rolls up.
+function coverageReason(n) {
+  const own = n.supports.map(ref => shown.claims[ref]);
+  const ownLevel = own.some(c => c.strength === 'sufficient') ? 'claimed' : own.length ? 'thin' : 'gap';
+  if (ownLevel === 'claimed') return `Claimed: a sufficient claim supports it${own.length > 1 ? `, among ${own.length} supporting claims` : ''}.`;
+  if (n.children.length) {
+    const pick = n.children.reduce((a, b) => (n.combine === 'any' ? RANK[b.coverage] > RANK[a.coverage] : RANK[b.coverage] < RANK[a.coverage]) ? b : a);
+    if (RANK[pick.coverage] >= RANK[ownLevel]) {
+      if (n.coverage === 'claimed') return n.combine === 'any' ? 'Claimed: one of its parts is claimed.' : `Claimed: all ${n.children.length} of its parts are claimed.`;
+      return `${n.coverage === 'thin' ? 'Thin' : 'Gap'}: it needs ${n.combine} of its parts, and “${esc(short(pick.statement, 80))}” is ${pick.coverage === 'gap' ? 'a gap' : 'thin'}.`;
+    }
+  }
+  return own.length ? `Thin: ${own.length} contributing claim${own.length > 1 ? 's' : ''}, none sufficient.` : 'Gap: nothing claims it yet.';
+}
+
+function updateFunnel() {
+  const funnel = $('#funnel'), trail = $('#trail');
+  if (!funnel || !shown) return;
+  const bar = $('.bar').offsetHeight;
+  document.documentElement.style.setProperty('--bar-h', `${bar}px`);
+  let at = null;   // the last intent whose heading has passed the reading line
+  for (const el of document.querySelectorAll('.tree .intent')) {
+    if (el.querySelector(':scope > .node').getBoundingClientRect().top <= bar + 90) at = el; else break;
+  }
+  at ??= document.querySelector('.tree .intent');
+  if (!at) return;
+  const chain = at.dataset.key.split('>');
+  const key = i => esc(chain.slice(0, i + 1).join('>'));
+  funnel.innerHTML = `<p class="funnel-label">You are in</p><ol>${chain.map((ref, i) => {
+    const n = treeIndex.get(ref), depth = chain.length - 1 - i;
+    return `<li class="funnel-card${depth === 0 ? ' current' : ''}" style="--d:${depth}">
+      <button type="button" data-goto="${key(i)}"><span class="cov ${n.coverage}" aria-label="${n.coverage}"></span><span class="funnel-text">${esc(n.statement)}</span></button>
+      <p class="reason">${depth === 0 ? coverageReason(n) : n.children.length ? `needs ${n.combine} of its parts` : ''}</p>
+    </li>`;
+  }).join('')}</ol>`;
+  trail.innerHTML = chain.map((ref, i) => {
+    const n = treeIndex.get(ref);
+    return `<button type="button" class="crumb" data-goto="${key(i)}"><span class="cov ${n.coverage}" aria-label="${n.coverage}"></span>${esc(short(n.statement, 42))}</button>`;
+  }).join('<span class="sep" aria-hidden="true">›</span>');
+}
+
+let ticking = false;
+window.addEventListener('scroll', () => {
+  if (ticking) return;
+  ticking = true;
+  requestAnimationFrame(() => { ticking = false; updateFunnel(); });
+}, { passive: true });
+window.addEventListener('resize', updateFunnel);
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('[data-goto]');
+  if (!b) return;
+  const target = document.querySelector(`.tree .intent[data-key="${CSS.escape(b.dataset.goto)}"]`);
+  target?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+});
+
 function render(r) {
+  shown = r;
+  treeIndex.clear();
+  const walk = n => { treeIndex.set(n.ref, n); n.children.forEach(walk); };
+  r.tree.forEach(walk);
   $('#doc').innerHTML = renderReport(r);
   renderPanel(r);
+  updateFunnel();
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────────────

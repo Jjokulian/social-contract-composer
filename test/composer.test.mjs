@@ -145,6 +145,10 @@ test('disagreements are classified by where their contexts part ways', () => {
   assert.equal(divergent.kind, 'divergent-context');
   assert.deepEqual(divergent.when.onlyB, ['tree-spacing@1 >= 8']);
   assert.equal(pair(r, refs.shadeDense, refs.shadeWet), undefined, 'same conclusion is not a disagreement');
+  assert.equal(pair(r, refs.barriersHelp, refs.barrierHolds), undefined, 'a stronger claim with more context refines, not disagrees');
+  assert.deepEqual(r.checks.refinements.find(x => x.weak === refs.barriersHelp),
+    { weak: refs.barriersHelp, strong: refs.barrierHolds, from: refs.barriers, to: refs.safe, adds: [refs.barriers] });
+  assert.ok(pair(r, refs.barriersHelp, refs.barrierHeaves), 'opposite conclusions still disagree');
 });
 
 test('parameter choices and a society\'s evaluations change what applies', () => {

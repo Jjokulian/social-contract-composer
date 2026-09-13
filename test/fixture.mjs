@@ -58,6 +58,8 @@ export function buildFixture() {
       when: [{ parameter: spacing, op: '>=', value: 8 }], rationale: 'A line of trunks keeps cars off the sidewalk.' }, 'critic'),
     barrierHolds: claim('barriers-hold-roots', { from: barriers, relation: 'supports', to: safe, strength: 'sufficient',
       given: [barriers], rationale: 'Barriers steer roots down.' }),
+    barriersHelp: claim('barriers-help', { from: barriers, relation: 'supports', to: safe,
+      rationale: 'Barriers keep most roots down.' }),   // the weaker, context-free version of barriers-hold-roots: a refinement
     barrierHeaves: claim('barriers-heave', { from: barriers, relation: 'hinders', to: safe,
       given: [barriers], rationale: 'Barriers crack in frost and heave the slabs.' }, 'critic'),
     cablesPower: claim('corridor-keeps-power', { from: cables, relation: 'supports', to: power, strength: 'sufficient',

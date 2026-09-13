@@ -27,6 +27,17 @@ export function jointlyImpossible(conditions) {
   return lo > hi || (lo === hi && !(loIn && hiIn));
 }
 
+const whenKey = w => `${w.parameter} ${w.op} ${w.value}`;
+const within = (a, b) => a.every(x => b.includes(x));
+
+// A stronger claim with more context refines a weaker one: "alone it contributes; with these, it suffices".
+// That is consistent, not a disagreement, so it is reported apart.
+const refines = (weak, strong) => weak.relation === strong.relation
+  && weak.strength === 'contributes' && strong.strength === 'sufficient'
+  && within(weak.given, strong.given)
+  && within(weak.when.map(whenKey), strong.when.map(whenKey))
+  && within(weak.assuming.map(a => a.ref), strong.assuming.map(a => a.ref));
+
 const split = (a, b) => ({
   shared: a.filter(x => b.includes(x)),
   onlyA: a.filter(x => !b.includes(x)),
@@ -105,12 +116,19 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
   const claimByRef = new Map(claims.map(c => [c.ref, c]));
   const standing = claims.filter(c => c.active && c.endorsed);
 
-  const disagreements = snap.disagreements.map(([refA, refB]) => {
-    const a = claimByRef.get(refA), b = claimByRef.get(refB);
-    return { a: a.ref, b: b.ref, from: a.from, to: a.to,
-             conclusions: [`${a.relation} (${a.strength})`, `${b.relation} (${b.strength})`],
-             live: a.active && b.active, ...compareContexts(a, b) };
+  const pairs = snap.disagreements.map(([refA, refB]) => [claimByRef.get(refA), claimByRef.get(refB)]);
+  const isRefinement = ([a, b]) => refines(a, b) || refines(b, a);
+  const refinements = pairs.filter(isRefinement).map(([a, b]) => {
+    const [weak, strong] = refines(a, b) ? [a, b] : [b, a];
+    return { weak: weak.ref, strong: strong.ref, from: a.from, to: a.to,
+             adds: [...strong.given.filter(x => !weak.given.includes(x)), ...strong.when.map(whenKey).filter(x => !weak.when.map(whenKey).includes(x)),
+                    ...strong.assuming.map(x => x.ref).filter(x => !weak.assuming.some(y => y.ref === x))] };
   });
+  const disagreements = pairs.filter(p => !isRefinement(p)).map(([a, b]) => ({
+    a: a.ref, b: b.ref, from: a.from, to: a.to,
+    conclusions: [`${a.relation} (${a.strength})`, `${b.relation} (${b.strength})`],
+    live: a.active && b.active, ...compareContexts(a, b),
+  }));
 
   // The intent tree, rolled up through all-of / any-of.
   const combine = new Map(snap.intents.map(i => [i.ref, i.combine]));
@@ -157,6 +175,7 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
     tensions: snap.clauses.map(cl => ({ clause: cl, supports: targets(cl, 'supports'), hinders: targets(cl, 'hinders') }))
       .filter(t => t.hinders.length),
     disagreements,
+    refinements,
     // A consequence is only real if someone detects the breach: clauses with consequences but no one assigned to that work.
     unenforced: snap.breaches.filter(b => !snap.enforcement.some(e => e.clause === b.clause)).map(b => b.clause),
   };

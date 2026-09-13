@@ -104,6 +104,50 @@ select {
 }
 .flag b { font-weight: 600; color: var(--ink); }
 
+/* ── The funnel: where you are in the tree, following as you scroll ───── */
+/* Ancestors recede like pages turned back in a book: tilted, smaller and fainter with distance. */
+.intents-flow { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 28px; align-items: start; }
+.funnel {
+  position: sticky; top: calc(var(--bar-h, 52px) + 12px); display: grid; gap: 8px;
+  max-height: calc(100vh - var(--bar-h, 52px) - 24px); overflow: auto; perspective: 700px; padding: 2px;
+}
+.funnel-label { margin: 0; font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); }
+.funnel ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.funnel-card {
+  --d: 0; transform-origin: left center;
+  transform: rotateY(calc(var(--d) * 8deg)) scale(calc(1 - var(--d) * 0.05));
+  opacity: calc(1 - var(--d) * 0.13);
+  transition: transform 240ms ease, opacity 240ms ease;
+}
+.funnel-card button {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; width: 100%; text-align: left;
+  font: 13px/1.35 var(--serif); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; cursor: pointer;
+}
+.funnel-card button:hover { border-color: var(--rule-strong); }
+.funnel-card.current button { border-color: var(--accent); font-size: 15px; }
+.funnel-card .cov, .crumb .cov { font-size: 0; gap: 0; margin-top: 3px; }
+.funnel-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.funnel-card.current .funnel-text { -webkit-line-clamp: 8; }
+.reason { margin: 4px 0 0 10px; font-size: 12px; line-height: 1.4; color: var(--ink-3); }
+.funnel-card.current .reason { color: var(--ink-2); }
+.reason:empty { display: none; }
+.trail { display: none; }
+.intent { scroll-margin-top: calc(var(--bar-h, 52px) + 16px); }
+@media (max-width: 1100px) {
+  .intents-flow { grid-template-columns: minmax(0, 1fr); }
+  .funnel { display: none; }
+  .trail {
+    display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; position: sticky; top: var(--bar-h, 52px); z-index: 1;
+    background: var(--ground); padding-block: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--rule);
+  }
+  .intent { scroll-margin-top: calc(var(--bar-h, 52px) + 64px); }
+}
+.crumb { display: inline-flex; gap: 6px; align-items: center; font: 12px var(--sans); color: var(--ink); background: none; border: 0; padding: 2px 0; cursor: pointer; text-align: left; }
+.crumb:hover { color: var(--accent); }
+.sep { color: var(--ink-3); }
+@media (prefers-reduced-motion: reduce) { .funnel-card { transition: none; } }
+
 /* ── Intent tree ─────────────────────────────────────────────────────── */
 .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
 .tree ul { margin-left: 5px; padding-left: 22px; border-left: 1px solid var(--rule-strong); }
@@ -123,6 +167,10 @@ details.claims > summary:hover { text-decoration: underline; }
 /* ── Claims ──────────────────────────────────────────────────────────── */
 .claim { padding-block: 12px; border-bottom: 1px solid var(--rule); display: grid; gap: 6px; }
 .claim.outside { background: var(--accent-wash); padding-inline: 12px; }
+.claim-group { display: grid; padding-block: 12px 4px; border-bottom: 1px solid var(--rule); }
+.group-clause { margin: 0 0 4px; }
+.claim-group .claim { border-bottom: 0; padding-block: 8px; padding-left: 16px; }
+.claim-group .claim + .claim { border-top: 1px dashed var(--rule); }
 .claim-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; font-size: 12px; }
 .relation { font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: 0.08em; }
 .relation.hinders, .relation.conflicts { color: var(--gap); }
