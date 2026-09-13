@@ -1,6 +1,7 @@
 // The composer client: reads a composition report from the server and renders it.
 // State lives in the URL (?contract=…&society=…&p.<parameter>=…), so every view can be linked.
 import { evaluate } from './evaluate.mjs';
+import { picoMatcher } from './picos.mjs';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -128,7 +129,7 @@ function renderReport(r) {
   const clause = ref => {
     const c = nano(ref);
     if (!c.text) return esc(humanize(ref));
-    return `<span class="modality" title="Binds: ${esc(c.roleLabel)}">${esc(c.modality)}</span> ${bindingChip(c.binding)} ${terms(esc(c.text))}`;
+    return `<span class="modality" title="Binds: ${esc(c.roleLabel)}">${esc(c.modality)}</span> ${bindingChip(c.binding)} ${terms(c.text)}`;
   };
 
   const context = c => {
@@ -159,7 +160,7 @@ function renderReport(r) {
         <span class="ref">${esc(c.ref)} · filed by ${esc(c.filedBy)}${issueLink(c.source) ? ` · from ${issueLink(c.source)}` : ''}</span>
       </div>
       ${withClause ? `<p class="clause-text" style="margin:0">${clause(c.from)}</p>` : ''}
-      <p class="rationale" style="margin:0">${terms(esc(c.rationale))}</p>
+      <p class="rationale" style="margin:0">${terms(c.rationale)}</p>
       ${context(c)}
     </div>`;
 
@@ -191,7 +192,7 @@ function renderReport(r) {
       <li class="intent" data-key="${esc([...path, node.ref].join('>'))}">
         <div class="node">
           <span class="cov ${node.coverage}">${node.coverage}</span>
-          <span class="statement">${terms(esc(node.statement))}</span>
+          <span class="statement">${terms(node.statement)}</span>
           <div class="node-meta">${flags}</div>
           ${node.influences.length ? `<p class="bears">Bears on it: ${node.influences.map(i => label(nano(i).from)).join(', ')}</p>` : ''}
           ${all.length ? `<details class="claims"><summary>${tally || 'claims'}</summary><div class="claim-list">${byClause(all)}</div></details>` : ''}
@@ -243,7 +244,7 @@ function renderReport(r) {
     `<header>
       <p class="eyebrow">${r.contract.scale === 'social' ? 'milli: a composed social contract' : 'micro: a micro-social-contract'} ·${esc(r.contract.status)} · ${esc(r.contract.ref)}${r.society ? ` · evaluated in ${esc(r.society)}` : ''}</p>
       <h1 class="title">${esc(r.contract.title)}</h1>
-      <p class="thesis">${r.tree.map(n => terms(esc(n.statement))).join(' · ')}</p>
+      <p class="thesis">${r.tree.map(n => terms(n.statement)).join(' · ')}</p>
       ${r.contract.status === 'proposed' ? `<p class="proposal-note">A proposal, raised in ${issueLink(r.contract.source) || 'an issue'} and not yet granted. It composes ${r.contract.includes.map(i => `<code>${esc(i.ref)}</code>`).join(', ')} with the proposal’s own nanos, so its effect on the intents can be tested here before anyone decides. Discuss it on the issue.</p>` : ''}
       <div class="coverage-bar" role="img" aria-label="${count('claimed')} intents claimed, ${count('thin')} thin, ${count('gap')} gaps">${bar}</div>
       <div class="legend">
@@ -264,7 +265,7 @@ function renderReport(r) {
         if (!clauses.length) return '';
         const roles = [...new Set(clauses.map(c => c.roleLabel))];
         return `<div class="finding"><h3>${heading}</h3><dl class="ctx">${roles.map(role => `<dt>${esc(role)}</dt><dd>${clauses.filter(c => c.roleLabel === role)
-          .map(c => `${terms(esc(c.text))}${kind === 'abide' ? (r.enforcement.some(e => e.clause === c.ref) ? '' : ' <span class="fails">· no one assigned to detect breaches</span>') : ''}`).join('<br>')}</dd>`).join('')}</dl></div>`;
+          .map(c => `${terms(c.text)}${kind === 'abide' ? (r.enforcement.some(e => e.clause === c.ref) ? '' : ' <span class="fails">· no one assigned to detect breaches</span>') : ''}`).join('<br>')}</dd>`).join('')}</dl></div>`;
       }).join('') || empty('This composition has no clauses yet.')),
     section('disagreements', 'Disagreements', 'Claims about the same clause and intent that reach different conclusions, with the context that separates them.',
       checks.disagreements.length ? checks.disagreements.map(disagreementHtml).join('')
@@ -307,7 +308,7 @@ function renderReport(r) {
         ? checks.definitionClashes.map(d => `<p style="margin:0">“${esc(d.term)}” is defined twice: ${d.definitions.map(named).join(' and ')}</p>`).join('')
         : empty('Each term has one definition.')}</div>`),
     section('definitions', 'Picos: defined words', 'Words with a strict definition in this contract. Wherever one appears in the text above, it is underlined; hover or focus it to read the definition. Where a composition brings in a different definition of the same word, it shows as a clash above.',
-      `<dl class="defs">${definitions.map(d => `<div><dt>${esc(d.termLabel)} <span class="ref">${esc(d.ref)}</span></dt><dd>${terms(esc(d.meaning), d.ref)}</dd>
+      `<dl class="defs">${definitions.map(d => `<div><dt>${esc(d.termLabel)} <span class="ref">${esc(d.ref)}</span></dt><dd>${terms(d.meaning, d.ref)}</dd>
         <dd class="forms">refers to it: ${d.forms.map(f => `“${esc(f)}”`).join(', ')}</dd></div>`).join('')}</dl>`),
   ].join('');
 }
@@ -377,23 +378,11 @@ function renderPanel(r) {
 // ─── Picos: strictly defined words, underlined wherever they appear, defined on hover or focus ─
 // A word refers to a pico when it matches one of the pico's forms. Longest forms match first, whole words only.
 
-let picoPattern = null;
-const picoByForm = new Map();
-function preparePicos(r) {
-  picoByForm.clear();
-  for (const p of Object.values(r.nanos).filter(n => n.kind === 'definition'))
-    for (const form of p.forms ?? [p.termLabel]) picoByForm.set(esc(form).toLowerCase(), p);
-  const forms = [...picoByForm.keys()].sort((a, b) => b.length - a.length).map(f => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  picoPattern = forms.length ? new RegExp(`(?<![\\p{L}\\p{N}’'-])(${forms.join('|')})(?![\\p{L}\\p{N}’'-])`, 'giu') : null;
-}
-// `html` is already escaped text; `self` keeps a pico's own definition from linking to itself.
-function terms(html, self) {
-  if (!picoPattern) return html;
-  return html.replace(picoPattern, m => {
-    const p = picoByForm.get(m.toLowerCase());
-    return p && p.ref !== self ? `<span class="term" tabindex="0" data-pico="${esc(p.ref)}">${m}</span>` : m;
-  });
-}
+let matcher = picoMatcher([]);
+function preparePicos(r) { matcher = picoMatcher(Object.values(r.nanos).filter(n => n.kind === 'definition')); }
+// Plain text in, HTML out: every reference to a pico becomes an underlined, focusable word.
+const terms = (text, self) => matcher.render(String(text ?? ''), esc,
+  (html, p) => `<span class="term" tabindex="0" data-pico="${esc(p.ref)}">${html}</span>`, self);
 
 const tip = Object.assign(document.createElement('div'), { id: 'pico-tip', role: 'tooltip', hidden: true });
 document.body.append(tip);

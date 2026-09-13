@@ -42,6 +42,11 @@ body:
       label: Intents and clauses it touches
       description: References from the composer, such as abort-only-for-fatal-risk@2 or protect-babies@1.
   - type: textarea
+    id: picos
+    attributes:
+      label: Words you use in a strict sense (picos)
+      description: For each word, give its definition and the exact words that should refer to it. Reuse the contract's defined words where you mean the same thing.
+  - type: textarea
     id: open
     attributes:
       label: What stays open

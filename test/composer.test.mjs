@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import { addNano, addContract, reviseContract, catalogue } from '../server/store.mjs';
 import { report, snapshot, evaluate, compose, jointlyImpossible } from '../server/checks.mjs';
 import { buildFixture } from './fixture.mjs';
+import { picoMatcher, nearMisses } from '../public/picos.mjs';
+
+test('picos link whole words, longest form first, never to themselves, and flag shared forms', () => {
+  const mother = { ref: 'm@1', forms: ['mother thrives'] }, baby = { ref: 'b@1', forms: ['thrives', 'survive and thrive'] };
+  const m = picoMatcher([mother, baby]);
+  assert.deepEqual(m.find('The mother thrives; the baby thrives; thrivesome.').map(x => [x.text, x.pico.ref]),
+    [['mother thrives', 'm@1'], ['thrives', 'b@1']]);
+  assert.deepEqual(m.find('survive and thrive', 'b@1'), [], 'a pico’s own definition does not link to itself');
+  assert.equal(m.render('The mother thrives.', s => s, (s, p) => `[${s}|${p.ref}]`), 'The [mother thrives|m@1].');
+  assert.deepEqual(picoMatcher([mother, { ref: 'x@1', forms: ['Mother thrives'] }]).collisions, [{ form: 'mother thrives', picos: ['m@1', 'x@1'] }]);
+  assert.deepEqual(nearMisses('She is thriving.', picoMatcher([{ ref: 'b@1', forms: ['baby thrives'] }])).map(x => x.word), ['thriving'],
+    'a word sharing the stem of a form’s longest word, but not linked, is a look-alike');
+});
 
 const pair = (r, a, b) => r.checks.disagreements.find(d => [d.a, d.b].sort().join() === [a, b].sort().join());
 const find = (nodes, ref) => nodes.reduce((hit, n) => hit ?? (n.ref === ref ? n : find(n.children, ref)), undefined);
