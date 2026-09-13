@@ -11,7 +11,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openStore, listContracts, describe, resolve, addNano, addContract, StoreError } from './store.mjs';
+import { openStore, listContracts, catalogue, describe, resolve, addNano, addContract, StoreError } from './store.mjs';
 import { report, snapshot } from './checks.mjs';
 
 const PORT = Number(process.env.PORT ?? 8800);
@@ -31,6 +31,7 @@ const parameterOverrides = query =>
 const routes = [
   { method: 'GET', path: /^\/api\/config$/, run: () => ({ server: true, writes: WRITES }) },
   { method: 'GET', path: /^\/api\/contracts$/, run: () => listContracts(db) },
+  { method: 'GET', path: /^\/api\/catalogue$/, run: () => catalogue(db) },
   { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/report$/,
     run: ([ref], query) => report(db, ref, { society: query.get('society') || null, parameters: parameterOverrides(query) }) },
   { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/snapshot$/, run: ([ref]) => snapshot(db, ref) },

@@ -13,6 +13,7 @@ The composer doesn't judge which contracts are right. It shows what a compositio
 
 **Live:** https://jjokulian.github.io/social-contract-composer/ (the static build; see below).
 **Reading guide:** [How to Read a Contract](https://jjokulian.github.io/social-contract-composer/guide.html). It applies to every contract in the catalogue.
+**Compose:** [drag and drop your own Social Contract](https://jjokulian.github.io/social-contract-composer/compose.html). Combine contracts and nanos, attach consequences of breach, watch the live report, and submit the result as a doubt.
 The design is in [docs/nano-store.md](docs/nano-store.md).
 
 ## Run it

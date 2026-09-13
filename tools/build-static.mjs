@@ -24,11 +24,14 @@ write('.nojekyll', '');   // serve every file as-is
 // Hosts cache files for minutes (GitHub Pages: max-age=600). Stamp the scripts and stylesheet with a hash of
 // their content, so a new deploy is never paired with a cached old script. Data is revalidated by the client.
 const read = path => readFileSync(new URL(path, OUT), 'utf8');
-const version = createHash('sha256').update(['app.js', 'evaluate.mjs', 'style.css', 'index.html', 'guide.html'].map(read).join('\0')).digest('hex').slice(0, 10);
-write('app.js', read('app.js').replace("from './evaluate.mjs'", `from './evaluate.mjs?v=${version}'`));
-for (const page of ['index.html', 'guide.html'])
+const SCRIPTS = ['app.js', 'composer.js', 'compose.mjs', 'evaluate.mjs'];
+const PAGES = ['index.html', 'guide.html', 'compose.html'];
+const version = createHash('sha256').update([...SCRIPTS, 'style.css', ...PAGES].map(read).join('\0')).digest('hex').slice(0, 10);
+for (const script of SCRIPTS)
+  write(script, read(script).replace(/from '\.\/([a-z-]+\.mjs)'/g, `from './$1?v=${version}'`));
+for (const page of PAGES)
   write(page, read(page)
     .replace('href="style.css"', `href="style.css?v=${version}"`)
-    .replace('src="app.js"', `src="app.js?v=${version}"`));
+    .replace(/src="([a-z-]+\.js)"/, `src="$1?v=${version}"`));
 
 console.log(`Built dist/ (version ${version}) with ${contracts.length} contract snapshot${contracts.length === 1 ? '' : 's'}.`);

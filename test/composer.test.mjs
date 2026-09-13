@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addNano, addContract, reviseContract } from '../server/store.mjs';
-import { report, snapshot, evaluate, jointlyImpossible } from '../server/checks.mjs';
+import { addNano, addContract, reviseContract, catalogue } from '../server/store.mjs';
+import { report, snapshot, evaluate, compose, jointlyImpossible } from '../server/checks.mjs';
 import { buildFixture } from './fixture.mjs';
 
 const pair = (r, a, b) => r.checks.disagreements.find(d => [d.a, d.b].sort().join() === [a, b].sort().join());
@@ -20,6 +20,25 @@ test('a snapshot round-tripped through JSON evaluates to the report the server g
   for (const ref of Object.values(contracts))
     for (const options of [{}, { parameters: { 'tree-spacing': 20 }, society: 'dryville' }])
       assert.deepEqual(evaluate(JSON.parse(JSON.stringify(snapshot(db, ref))), options), report(db, ref, options));
+});
+
+test('a draft composed in the browser is evaluated exactly like a stored contract', () => {
+  const { db, refs, contracts } = buildFixture();
+  const cat = JSON.parse(JSON.stringify(catalogue(db)));   // what the browser fetches
+  const claim = { kind: 'claim', ref: 'draft-claim-1@1', id: 'draft-claim-1', rev: 1, rid: 1e9 + 1, from: refs.party, relation: 'supports',
+    to: refs.livable, strength: 'contributes', rationale: 'Neighbours meet.', given: [], when: [], assuming: [], measuredBy: [], filedBy: 'you', source: 'draft' };
+  const draft = { id: 'draft', scale: 'social', title: 'Draft', status: 'draft',
+    intents: [{ ref: refs.livable, combine: 'all' }], edges: [], members: [refs.party, claim.ref], parameters: {},
+    includes: [{ ref: contracts.streetTrees, mode: 'nest', under: refs.livable }],
+    breaches: [{ clause: refs.plant, consequence: refs.fine }] };
+  const r = evaluate(compose({ ...cat, nanos: { ...cat.nanos, [claim.ref]: claim } }, draft));
+  assert.equal(r.tree[0].children[0].ref, refs.greenStreets, 'the nested contract hangs under the draft’s intent');
+  assert.deepEqual(r.breaches[0], { clause: refs.plant, consequences: [refs.fine], setBy: '(draft)' });
+  assert.equal(r.claims[claim.ref].endorsed, true);
+  assert.ok(r.tree[0].supports.includes(claim.ref), 'the draft’s own claim counts towards its intent');
+  const stored = report(db, contracts.town);
+  assert.deepEqual(r.checks.definitionClashes, [], 'utilities is not in this draft, so no clash');
+  assert.equal(stored.checks.definitionClashes.length, 1);
 });
 
 test('revisions are append-only', () => {
