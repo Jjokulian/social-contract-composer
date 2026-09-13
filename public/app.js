@@ -2,6 +2,8 @@
 // State lives in the URL (?contract=…&society=…&p.<parameter>=…), so every view can be linked.
 import { evaluate } from './evaluate.mjs';
 import { picoMatcher } from './picos.mjs';
+import { findSource } from './source.mjs';
+import { coverageReason } from './explain.mjs';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -21,27 +23,8 @@ const KIND = {
 
 // ─── Server ──────────────────────────────────────────────────────────────────
 
-async function getJSON(path) {
-  const res = await fetch(path, { cache: 'no-cache' });   // always revalidate: a new deploy shows at once, an unchanged one costs a 304
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? `${res.status} ${path}`);
-  return body;
-}
-
-// With a server, read from the API; on a static host (no /api), read the snapshots baked at build time.
-// Either way the report is evaluated here, by the same module the server uses.
-const SOURCES = {
-  server: {
-    contracts: () => getJSON('api/contracts'),
-    societies: () => getJSON('api/societies'),
-    snapshot: id => getJSON(`api/contracts/${encodeURIComponent(id)}/snapshot`),
-  },
-  static: {
-    contracts: () => getJSON('data/contracts.json'),
-    societies: () => getJSON('data/societies.json'),
-    snapshot: id => getJSON(`data/snapshots/${encodeURIComponent(id)}.json`),
-  },
-};
+// Contracts come from the server or the baked snapshots (public/source.mjs); either way the report is evaluated here,
+// by the same module the server uses.
 let source;
 const snapshots = new Map();
 
@@ -61,6 +44,7 @@ function writeUrl() {
   if (state.society) q.set('society', state.society);
   for (const [id, value] of Object.entries(state.parameters)) q.set(`p.${id}`, value);
   history.replaceState(null, '', `?${q}`);
+  document.querySelectorAll('a[data-keep-contract]').forEach(a => { a.href = `${a.dataset.keepContract}?contract=${encodeURIComponent(state.contract)}`; });
 }
 
 let sequence = 0;
@@ -409,23 +393,7 @@ window.addEventListener('scroll', hideTip, { passive: true });
 
 let shown = null;                  // the report on screen
 const treeIndex = new Map();       // ref → node; an intent with two parents is one node
-const RANK = { gap: 0, thin: 1, claimed: 2 };
 const short = (s, max = 60) => (s = String(s ?? '')).length > max ? `${s.slice(0, max - 1)}…` : s;
-
-// Why an intent has its coverage, from the same inputs evaluate.mjs rolls up.
-function coverageReason(n) {
-  const own = n.supports.map(ref => shown.claims[ref]);
-  const ownLevel = own.some(c => c.strength === 'sufficient') ? 'claimed' : own.length ? 'thin' : 'gap';
-  if (ownLevel === 'claimed') return `Claimed: a sufficient claim supports it${own.length > 1 ? `, among ${own.length} supporting claims` : ''}.`;
-  if (n.children.length) {
-    const pick = n.children.reduce((a, b) => (n.combine === 'any' ? RANK[b.coverage] > RANK[a.coverage] : RANK[b.coverage] < RANK[a.coverage]) ? b : a);
-    if (RANK[pick.coverage] >= RANK[ownLevel]) {
-      if (n.coverage === 'claimed') return n.combine === 'any' ? 'Claimed: one of its parts is claimed.' : `Claimed: all ${n.children.length} of its parts are claimed.`;
-      return `${n.coverage === 'thin' ? 'Thin' : 'Gap'}: it needs ${n.combine} of its parts, and “${esc(short(pick.statement, 80))}” is ${pick.coverage === 'gap' ? 'a gap' : 'thin'}.`;
-    }
-  }
-  return own.length ? `Thin: ${own.length} contributing claim${own.length > 1 ? 's' : ''}, none sufficient.` : 'Gap: nothing claims it yet.';
-}
 
 function updateFunnel() {
   const funnel = $('#funnel'), trail = $('#trail');
@@ -444,7 +412,7 @@ function updateFunnel() {
     const n = treeIndex.get(ref), depth = chain.length - 1 - i;
     return `<li class="funnel-card${depth === 0 ? ' current' : ''}" style="--d:${depth}">
       <button type="button" data-goto="${key(i)}"><span class="cov ${n.coverage}" aria-label="${n.coverage}"></span><span class="funnel-text">${esc(n.statement)}</span></button>
-      <p class="reason">${depth === 0 ? coverageReason(n) : n.children.length ? `needs ${n.combine} of its parts` : ''}</p>
+      <p class="reason">${depth === 0 ? esc(coverageReason(n, shown.claims)) : n.children.length ? `needs ${n.combine} of its parts` : ''}</p>
     </li>`;
   }).join('')}</ol>`;
   trail.innerHTML = chain.map((ref, i) => {
@@ -482,7 +450,7 @@ function render(r) {
 
 async function boot() {
   readUrl();
-  source = await getJSON('api/config').then(() => SOURCES.server, () => SOURCES.static);   // a 404 is an answer, not an error
+  source = await findSource();
 
   const [contracts, societies] = await Promise.all([source.contracts(), source.societies()]).catch(err => { fail(err.message); return []; });
   if (!contracts) return;

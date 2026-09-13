@@ -24,8 +24,8 @@ write('.nojekyll', '');   // serve every file as-is
 // Hosts cache files for minutes (GitHub Pages: max-age=600). Stamp the scripts and stylesheet with a hash of
 // their content, so a new deploy is never paired with a cached old script. Data is revalidated by the client.
 const read = path => readFileSync(new URL(path, OUT), 'utf8');
-const SCRIPTS = ['app.js', 'composer.js', 'compose.mjs', 'evaluate.mjs', 'picos.mjs'];
-const PAGES = ['index.html', 'guide.html', 'compose.html'];
+const SCRIPTS = ['app.js', 'composer.js', 'graph.js', 'compose.mjs', 'evaluate.mjs', 'picos.mjs', 'source.mjs', 'explain.mjs'];
+const PAGES = ['index.html', 'guide.html', 'compose.html', 'graph.html'];
 const version = createHash('sha256').update([...SCRIPTS, 'style.css', ...PAGES].map(read).join('\0')).digest('hex').slice(0, 10);
 for (const script of SCRIPTS)
   write(script, read(script).replace(/from '\.\/([a-z-]+\.mjs)'/g, `from './$1?v=${version}'`));

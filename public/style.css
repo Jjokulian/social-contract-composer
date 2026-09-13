@@ -305,6 +305,47 @@ details.claims > summary:hover { text-decoration: underline; }
 .tip-meaning { margin: 0; color: var(--ink-2); }
 .defs dd.forms { margin-top: 4px; font: 12px var(--sans); color: var(--ink-3); }
 
+/* ── Graph view ──────────────────────────────────────────────────────── */
+.graph-layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 24px;
+  max-width: 1680px; margin: 0 auto; padding-block: 16px 32px; padding-inline: 16px;
+}
+@media (max-width: 1000px) { .graph-layout { grid-template-columns: minmax(0, 1fr); } .graph-panel { position: static; max-height: none; } }
+.graph-main { display: grid; gap: 10px; min-width: 0; align-content: start; }
+.graph-toolbar { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; justify-content: space-between; }
+.layers { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; border: 0; margin: 0; padding: 0; font-size: 13px; color: var(--ink-2); }
+.layers legend { float: left; margin-right: 4px; font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); }
+.layers label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.layers input { accent-color: var(--accent); }
+.graph-canvas {
+  height: calc(100vh - var(--bar-h, 52px) - 130px); min-height: 480px;
+  border: 1px solid var(--rule); border-radius: 6px; background: var(--surface);
+}
+.graph-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--ink-2); }
+.lg { display: inline-flex; align-items: center; gap: 6px; }
+.lg-line { width: 26px; height: 0; border-top: 2px solid var(--rule-strong); }
+.lg-line.supports { border-top: 3.5px solid var(--claimed); }
+.lg-line.contributes { border-top: 2px dashed var(--claimed); }
+.lg-line.hinders { border-top-color: var(--gap); }
+.lg-line.given { border-top: 1.5px dotted var(--ink-2); }
+.lg-line.influence { border-top: 1px solid var(--ink-3); }
+.lg-line.breach { border-top-color: var(--gap); }
+.lg-node { width: 16px; height: 11px; border: 2px solid var(--rule-strong); background: var(--surface); border-radius: 3px; }
+.lg-node.claimed { border-color: var(--claimed); }
+.lg-node.thin { border: 2px dashed var(--thin); }
+.lg-node.gap { border: 2px dotted var(--gap); }
+.lg-node.clause { border-radius: 0; background: var(--ground); }
+.lg-node.measure { border-radius: 50%; }
+.graph-panel { position: sticky; top: calc(var(--bar-h, 52px) + 16px); max-height: calc(100vh - var(--bar-h, 52px) - 32px); overflow: auto; }
+.detail-kind { margin: 0 0 6px; font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
+.detail-text { margin: 0 0 10px; font: 17px/1.45 var(--serif); }
+.detail-note { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.detail-note a { color: var(--accent); }
+.detail-h { margin: 14px 0 6px; font: 600 12px var(--sans); color: var(--ink-2); }
+.detail-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font: 14px/1.45 var(--serif); color: var(--ink); }
+.detail-list li { border-top: 1px solid var(--rule); padding-top: 8px; }
+.detail-list .detail-kind { display: inline; margin: 0 4px 0 0; }
+
 /* ── Panel ───────────────────────────────────────────────────────────── */
 .panel h2 { font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); margin-bottom: 10px; }
 .param { display: grid; gap: 4px; padding-block: 10px; border-top: 1px solid var(--rule); }
