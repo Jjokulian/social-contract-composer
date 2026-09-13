@@ -239,14 +239,6 @@ test('a social contract nests, adds, and surfaces clashes, conflicts, gaps and o
   const { db, refs, contracts } = buildFixture();
   const r = report(db, contracts.town);
   assert.deepEqual(r.tree.map(n => n.ref), [refs.livable, refs.power, refs.quiet]);
-  assert.equal(r.contract.territory, 'old-town@1', 'a milli is implemented on a territory revision');
-  assert.equal(r.nanos['old-town@1'].name, 'The old town and its river banks');
-  assert.deepEqual([r.nanos['old-town@1'].frame, r.nanos['old-town@1'].geometry.type], ['WGS84', 'Polygon']);
-  assert.equal(report(db, contracts.streetTrees).contract.territory, null, 'a micro has none');
-  assert.throws(() => addContract(db, { id: 'nowhere', scale: 'social', title: 'x', filedBy: 'planners', source: 'test', territory: refs.shade }),
-    /not a territory/);
-  assert.throws(() => addNano(db, { id: 'bad-land', kind: 'territory', filedBy: 'planners', source: 'test', name: 'x', frame: 'WGS84',
-    geometry: { type: 'Line' } }), /GeoJSON/);
   assert.equal(r.tree[0].children[0].ref, refs.greenStreets, 'street-trees hangs under livable-town');
   assert.deepEqual(r.checks.definitionClashes, [{ term: 'street-tree', definitions: ['street-tree@1', 'street-tree-broad@1'], kind: 'senses' }]);
   assert.deepEqual(r.nanos['street-tree@1'].forms, ['street tree'], 'a pico with no stated forms is referred to by its term');

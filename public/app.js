@@ -217,14 +217,6 @@ function renderReport(r) {
       </div>`;
   };
 
-  // A milli is virtual until implemented on a territory: a coordinate segment in a named frame.
-  const territoryLine = r => {
-    const t = r.contract.territory && nano(r.contract.territory);
-    if (!t) return '';
-    const shape = t.geometry.type === 'Point' ? `a point at ${t.geometry.coordinates.join(', ')}` : `a ${t.geometry.type.toLowerCase()}`;
-    return ` · on <span class="territory" title="${esc(`${t.ref}: ${shape} in ${t.frame}`)}">${esc(t.name)}</span>`;
-  };
-
   const outside = Object.values(r.claims).filter(c => !c.endorsed);
   const definitions = Object.values(r.nanos).filter(n => n.kind === 'definition');
   const { checks } = r;
@@ -234,7 +226,7 @@ function renderReport(r) {
 
   return [
     `<header>
-      <p class="eyebrow">${r.contract.scale === 'social' ? 'milli: a composed social contract' : 'micro: a micro-social-contract'} · ${esc(r.contract.status)} · ${esc(r.contract.ref)}${territoryLine(r)}${r.society ? ` · evaluated in ${esc(r.society)}` : ''}</p>
+      <p class="eyebrow">${r.contract.scale === 'social' ? 'milli: a composed social contract' : 'micro: a micro-social-contract'} ·${esc(r.contract.status)} · ${esc(r.contract.ref)}${r.society ? ` · evaluated in ${esc(r.society)}` : ''}</p>
       <h1 class="title">${esc(r.contract.title)}</h1>
       <p class="thesis">${r.tree.map(n => terms(n.statement, nano(n.ref))).join(' · ')}</p>
       ${r.contract.status === 'proposed' ? `<p class="proposal-note">A proposal, raised in ${issueLink(r.contract.source) || 'an issue'} and not yet granted. It composes ${r.contract.includes.map(i => `<code>${esc(i.ref)}</code>`).join(', ')} with the proposal’s own nanos, so its effect on the intents can be tested here before anyone decides. Discuss it on the issue.</p>` : ''}

@@ -73,8 +73,6 @@ export function buildFixture() {
   const canopyShades = add('canopy-shades', 'influence', { from: canopy, direction: 'bears-on', to: shade, rationale: 'Shade comes from closed crowns.' }, 'critic');
   const warning = add('written-warning', 'consequence', { statement: 'A written warning' });
   const fine = add('street-fine', 'consequence', { statement: 'A fine paid to the street fund' });
-  const oldTown = add('old-town', 'territory', { name: 'The old town and its river banks', frame: 'WGS84',
-    geometry: { type: 'Polygon', coordinates: [[[12.56, 55.67], [12.60, 55.67], [12.60, 55.69], [12.56, 55.69], [12.56, 55.67]]] } });
 
   const streetTrees = addContract(db, {
     id: 'street-trees', scale: 'micro', title: 'Street Trees', filedBy: 'planners', source: 'fixture',
@@ -89,7 +87,7 @@ export function buildFixture() {
     members: [cables, party, treeBroad, c.cablesPower],
   });
   const town = addContract(db, {
-    id: 'town', scale: 'social', title: 'Town', territory: oldTown, filedBy: 'planners', source: 'fixture',
+    id: 'town', scale: 'social', title: 'Town', filedBy: 'planners', source: 'fixture',
     intents: [{ ref: livable }],
     includes: [{ contract: streetTrees.ref, mode: 'nest', under: livable }, { contract: utilities.ref, mode: 'add' }],
     breaches: [{ clause: plant, consequence: fine }],   // the town overrides street-trees for this clause

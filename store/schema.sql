@@ -31,8 +31,6 @@ INSERT OR IGNORE INTO kind (name, description) VALUES
   ('influence',  'How one measure bears on another measure or on an intent, stated without committing to its truth');
 INSERT OR IGNORE INTO kind (name, description) VALUES
   ('consequence', 'What breaching a clause costs, as the composing parties agree it');
-INSERT OR IGNORE INTO kind (name, description) VALUES
-  ('territory', 'A coordinate segment, on Earth or elsewhere in the solar system, on which a milli is implemented');
 
 CREATE TABLE IF NOT EXISTS author (
   id    TEXT PRIMARY KEY,               -- a GitHub handle or a named group
@@ -214,16 +212,6 @@ CREATE TABLE IF NOT EXISTS consequence_body (
   statement TEXT NOT NULL
 ) STRICT;
 
--- A territory: the coordinate segment a milli is implemented on. Picos, nanos, micros and millis are virtual; a
--- territory is where one becomes a society. `frame` names the coordinate system (WGS84 for Earth longitude/latitude,
--- or a solar-system frame); `geometry` is GeoJSON (Point, Polygon or MultiPolygon) in that frame.
-CREATE TABLE IF NOT EXISTS territory_body (
-  rid      INTEGER PRIMARY KEY REFERENCES revision(rid),
-  name     TEXT NOT NULL,
-  frame    TEXT NOT NULL,
-  geometry TEXT NOT NULL
-) STRICT;
-
 -- ─── Contracts: micro-social-contracts and Social Contracts ───────────────────
 
 CREATE TABLE IF NOT EXISTS contract (
@@ -236,7 +224,6 @@ CREATE TABLE IF NOT EXISTS contract_rev (
   contract_id TEXT    NOT NULL REFERENCES contract(id),
   rev         INTEGER NOT NULL CHECK (rev >= 1),
   title       TEXT    NOT NULL,
-  territory_rid INTEGER REFERENCES revision(rid),   -- for a milli: the territory (a coordinate segment) it is implemented on
   status      TEXT    NOT NULL CHECK (status IN ('draft', 'proposed', 'adopted', 'retired')),
   filed_by    TEXT    NOT NULL REFERENCES author(id),
   source      TEXT    NOT NULL,
@@ -375,11 +362,6 @@ WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.clause_rid) IS NOT 'clause'
   OR (SELECT kind FROM revision_kind WHERE rid = NEW.consequence_rid) IS NOT 'consequence'
 BEGIN SELECT RAISE(ABORT, 'a breach attaches a consequence to a clause'); END;
 
-CREATE TRIGGER IF NOT EXISTS territory_body_kind BEFORE INSERT ON territory_body
-WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.rid) IS NOT 'territory'
-BEGIN SELECT RAISE(ABORT, 'territory_body needs a territory revision'); END;
--- (contract_rev's territory check is created in server/store.mjs migrate(), after the column is sure to exist.)
-
 CREATE TRIGGER IF NOT EXISTS nano_pico_kind BEFORE INSERT ON nano_pico
 WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.pico_rid) IS NOT 'definition'
 BEGIN SELECT RAISE(ABORT, 'a nano refers to a pico: a definition revision'); END;
@@ -428,7 +410,6 @@ CREATE TRIGGER IF NOT EXISTS evaluation_body_immutable    BEFORE UPDATE ON evalu
 CREATE TRIGGER IF NOT EXISTS influence_body_immutable     BEFORE UPDATE ON influence_body     BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS consequence_body_immutable   BEFORE UPDATE ON consequence_body   BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS definition_form_immutable    BEFORE UPDATE ON definition_form    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
-CREATE TRIGGER IF NOT EXISTS territory_body_immutable     BEFORE UPDATE ON territory_body     BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS nano_pico_immutable_u        BEFORE UPDATE ON nano_pico          BEGIN SELECT RAISE(ABORT, 'a nano’s picos are fixed with its revision: write a new revision to use another pico'); END;
 CREATE TRIGGER IF NOT EXISTS nano_pico_immutable_d        BEFORE DELETE ON nano_pico          BEGIN SELECT RAISE(ABORT, 'a nano’s picos are fixed with its revision: write a new revision to use another pico'); END;
 CREATE TRIGGER IF NOT EXISTS contract_breach_immutable    BEFORE UPDATE ON contract_breach    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
