@@ -1,6 +1,6 @@
 # Nano store — design
 
-*Status: implemented, except the GitHub Issues contribution flow and the static build.*
+*Status: implemented and live at https://jjokulian.github.io/social-contract-composer/, except for the GitHub Issues contribution flow.*
 
 ## The idea
 
@@ -27,10 +27,15 @@ A normal server over one normalized database. Every fact is recorded once, and e
 | `store/schema.sql` | Tables, integrity triggers, composition views |
 | `store/composer.sqlite` | The store. It's committed, and `tools/sqlite-dump.mjs` makes its git diffs readable |
 | `server/store.mjs` | Writes nanos and contracts in single transactions; reads them with references rendered as `id@rev` |
-| `server/checks.mjs` | The composition report |
+| `server/checks.mjs` | Snapshots a composition: everything in scope for one contract, as plain JSON |
+| `public/evaluate.mjs` | Turns a snapshot into the composition report. Pure JavaScript, shared by the server and the browser |
 | `server/index.mjs` | JSON API plus the static client |
 
-The static build for GitHub Pages is a later, additive step, done with the `publish-to-static-host` skill. The client asks `/api/config` whether a server exists and degrades when it doesn't. Reads over known inputs bake into files; writes stay server-only.
+The report is split in two:
+- **Snapshot** (SQL): what is in scope. It depends only on the contract, so it can be baked.
+- **Evaluate** (pure): conditions, rollup and disagreement classification at the chosen parameter values and society. The parameter combinations are far too many to bake, so this part runs wherever the page runs.
+
+The static build (`tools/build-static.mjs`, deployed by `.github/workflows/pages.yml`) ships one snapshot per contract. The client asks `api/config` whether a server exists, and a 404 switches it to the baked snapshots. Writes stay server-only.
 
 ### What the schema enforces
 

@@ -1,5 +1,6 @@
 // The composer client: reads a composition report from the server and renders it.
 // State lives in the URL (?contract=…&society=…&p.<parameter>=…), so every view can be linked.
+import { evaluate } from './evaluate.mjs';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -26,17 +27,22 @@ async function getJSON(path) {
   return body;
 }
 
-const api = {
-  config: () => getJSON('api/config'),
-  contracts: () => getJSON('api/contracts'),
-  societies: () => getJSON('api/societies'),
-  report: (ref, { society, parameters }) => {
-    const q = new URLSearchParams();
-    if (society) q.set('society', society);
-    for (const [id, value] of Object.entries(parameters)) q.set(`p.${id}`, value);
-    return getJSON(`api/contracts/${encodeURIComponent(ref)}/report?${q}`);
+// With a server, read from the API; on a static host (no /api), read the snapshots baked at build time.
+// Either way the report is evaluated here, by the same module the server uses.
+const SOURCES = {
+  server: {
+    contracts: () => getJSON('api/contracts'),
+    societies: () => getJSON('api/societies'),
+    snapshot: id => getJSON(`api/contracts/${encodeURIComponent(id)}/snapshot`),
+  },
+  static: {
+    contracts: () => getJSON('data/contracts.json'),
+    societies: () => getJSON('data/societies.json'),
+    snapshot: id => getJSON(`data/snapshots/${encodeURIComponent(id)}.json`),
   },
 };
+let source;
+const snapshots = new Map();
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -61,8 +67,9 @@ async function load() {
   const mine = ++sequence;
   $('#doc').classList.add('busy');
   try {
-    const report = await api.report(state.contract, state);
+    if (!snapshots.has(state.contract)) snapshots.set(state.contract, await source.snapshot(state.contract));
     if (mine !== sequence) return;
+    const report = evaluate(snapshots.get(state.contract), state);
     writeUrl();
     render(report);
   } catch (err) {
@@ -73,7 +80,7 @@ async function load() {
 }
 
 let timer;
-const loadSoon = () => { clearTimeout(timer); timer = setTimeout(load, 120); };
+const loadSoon = () => { clearTimeout(timer); timer = setTimeout(load, 16); };
 
 function fail(message) {
   $('#doc').innerHTML = `<p class="notice error">${esc(message)}</p>`;
@@ -310,10 +317,10 @@ function render(r) {
 
 async function boot() {
   readUrl();
-  try { await api.config(); }
-  catch { return fail('This page reads from the composer server. Start it with “npm start” and reload.'); }
+  source = await getJSON('api/config').then(() => SOURCES.server, () => SOURCES.static);   // a 404 is an answer, not an error
 
-  const [contracts, societies] = await Promise.all([api.contracts(), api.societies()]);
+  const [contracts, societies] = await Promise.all([source.contracts(), source.societies()]).catch(err => { fail(err.message); return []; });
+  if (!contracts) return;
   if (!contracts.length) return fail('The store has no contracts yet.');
   if (!contracts.some(c => c.id === state.contract)) state.contract = contracts[0].id;
 

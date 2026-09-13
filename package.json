@@ -6,7 +6,8 @@
   "description": "Compose micro-social-contracts from reusable nanos and check the satisfiability they claim.",
   "scripts": {
     "start": "node server/index.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "build:static": "node tools/build-static.mjs"
   },
   "engines": {
     "node": ">=20"

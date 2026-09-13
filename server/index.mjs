@@ -3,6 +3,7 @@
 //   GET  /api/config                         what this deployment can do (a static build has no /api, and the client degrades)
 //   GET  /api/contracts                      latest revision of every contract
 //   GET  /api/contracts/:ref/report          the composition report; ?society=<id>&p.<parameter-id>=<value> to explore
+//   GET  /api/contracts/:ref/snapshot        everything in scope for the contract; public/evaluate.mjs turns it into a report
 //   GET  /api/societies                      societies that have evaluations
 //   GET  /api/nanos/:ref                     one nano revision
 //   POST /api/nanos, /api/contracts          append to the store (only with COMPOSER_ALLOW_WRITES=1)
@@ -11,7 +12,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore, listContracts, describe, resolve, addNano, addContract, StoreError } from './store.mjs';
-import { report } from './checks.mjs';
+import { report, snapshot } from './checks.mjs';
 
 const PORT = Number(process.env.PORT ?? 8800);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -32,6 +33,7 @@ const routes = [
   { method: 'GET', path: /^\/api\/contracts$/, run: () => listContracts(db) },
   { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/report$/,
     run: ([ref], query) => report(db, ref, { society: query.get('society') || null, parameters: parameterOverrides(query) }) },
+  { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/snapshot$/, run: ([ref]) => snapshot(db, ref) },
   { method: 'GET', path: /^\/api\/societies$/, run: () => db.prepare('SELECT id, label FROM society ORDER BY label').all() },
   { method: 'GET', path: /^\/api\/nanos\/([^/]+)$/, run: ([ref]) => describe(db, resolve(db, ref)) },
   { method: 'POST', path: /^\/api\/nanos$/, writes: true, run: (_, __, body) => addNano(db, body) },
@@ -74,7 +76,7 @@ createServer(async (req, res) => {
     const params = route.path.exec(url.pathname).slice(1).map(decodeURIComponent);
     send(res, req.method === 'POST' ? 201 : 200, route.run(params, url.searchParams, body));
   } catch (err) {
-    const status = err instanceof StoreError ? err.status
+    const status = err instanceof StoreError || err.status ? err.status
       : err instanceof SyntaxError || String(err.code).startsWith('SQLITE_CONSTRAINT') ? 400
       : 500;
     if (status === 500) console.error(err);

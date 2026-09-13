@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addNano, addContract } from '../server/store.mjs';
-import { report, jointlyImpossible } from '../server/checks.mjs';
+import { report, snapshot, evaluate, jointlyImpossible } from '../server/checks.mjs';
 import { buildFixture } from './fixture.mjs';
 
 const pair = (r, a, b) => r.checks.disagreements.find(d => [d.a, d.b].sort().join() === [a, b].sort().join());
@@ -13,6 +13,13 @@ test('conditions on one quantity are impossible together only when their interva
   assert.equal(jointlyImpossible([{ op: '>=', value: 8 }, { op: '<=', value: 8 }]), false);
   assert.equal(jointlyImpossible([{ op: '=', value: 3 }, { op: '>=', value: 3 }]), false);
   assert.equal(jointlyImpossible([{ op: '=', value: 3 }, { op: '=', value: 4 }]), true);
+});
+
+test('a snapshot round-tripped through JSON evaluates to the report the server gives', () => {
+  const { db, contracts } = buildFixture();
+  for (const ref of Object.values(contracts))
+    for (const options of [{}, { parameters: { 'tree-spacing': 20 }, society: 'dryville' }])
+      assert.deepEqual(evaluate(JSON.parse(JSON.stringify(snapshot(db, ref))), options), report(db, ref, options));
 });
 
 test('revisions are append-only', () => {
