@@ -6,4 +6,4 @@ Drafts can start here as markdown. Once a draft is converted into the store, its
 
 | Contract | In the store | Here |
 |---|---|---|
-| pro-pregnancy | `pro-pregnancy@1`, draft | a services and cost-per-citizen explorer (planned) |
+| pro-pregnancy | `pro-pregnancy@1`, draft | — |
