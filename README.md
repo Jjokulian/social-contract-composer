@@ -12,6 +12,7 @@ Contracts are built from **nanos**, small reusable parts stored once in one data
 The composer doesn't judge which contracts are right. It shows what a composition *claims* to satisfy, where its claims pull against each other, where two claims disagree and exactly why, and what is left uncovered. Claims are put up for evaluation: a society that adopts a contract tests them.
 
 **Live:** https://jjokulian.github.io/social-contract-composer/ (the static build; see below).
+**Reading guide:** [How to Read a Contract](https://jjokulian.github.io/social-contract-composer/guide.html). It applies to every contract in the catalogue.
 The design is in [docs/nano-store.md](docs/nano-store.md).
 
 ## Run it
