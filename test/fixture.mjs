@@ -66,12 +66,15 @@ export function buildFixture() {
   };
 
   const canopyShades = add('canopy-shades', 'influence', { from: canopy, direction: 'bears-on', to: shade, rationale: 'Shade comes from closed crowns.' }, 'critic');
+  const warning = add('written-warning', 'consequence', { statement: 'A written warning' });
+  const fine = add('street-fine', 'consequence', { statement: 'A fine paid to the street fund' });
 
   const streetTrees = addContract(db, {
     id: 'street-trees', scale: 'micro', title: 'Street Trees', filedBy: 'planners', source: 'fixture',
     intents: [{ ref: greenStreets }, { ref: shade, parent: greenStreets }, { ref: safe, parent: greenStreets }],
     members: [plant, barriers, water, treeNarrow, rainfall, canopy, wet, c.shadeDense, c.shadeWet, c.rootsLift, c.barrierHolds],
     parameters: { [spacing]: 10 },
+    breaches: [{ clause: plant, consequence: warning }, { clause: barriers, consequence: warning }],
   });
   const utilities = addContract(db, {
     id: 'utilities', scale: 'micro', title: 'Utilities', filedBy: 'utility', source: 'fixture',
@@ -82,12 +85,13 @@ export function buildFixture() {
     id: 'town', scale: 'social', title: 'Town', filedBy: 'planners', source: 'fixture',
     intents: [{ ref: livable }],
     includes: [{ contract: streetTrees.ref, mode: 'nest', under: livable }, { contract: utilities.ref, mode: 'add' }],
+    breaches: [{ clause: plant, consequence: fine }],   // the town overrides street-trees for this clause
   });
 
   add('dryville-rain', 'evaluation', { measure: rainfall, society: 'dryville', value: 300, observedOn: '2030', sourceUrl: 'https://example.org/dryville' }, 'critic');
   add('wetton-rain', 'evaluation', { measure: rainfall, society: 'wetton', value: 900, observedOn: '2030', sourceUrl: 'https://example.org/wetton' }, 'critic');
 
   return { db, refs: { greenStreets, shade, safe, power, quiet, livable, plant, barriers, cables, party, spacing,
-                       rainfall, canopy, rainFeedsCanopy, canopyShades, ...c },
+                       rainfall, canopy, rainFeedsCanopy, canopyShades, warning, fine, ...c },
            contracts: { streetTrees: streetTrees.ref, utilities: utilities.ref, town: town.ref } };
 }

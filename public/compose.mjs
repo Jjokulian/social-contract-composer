@@ -81,13 +81,24 @@ export function compose(cat, spec) {
       if (nanoOf(definitions[i]).term === nanoOf(definitions[j]).term)
         definitionClashes.push({ term: nanoOf(definitions[i]).term, definitions: [definitions[i], definitions[j]] });
 
-  const described = new Set([...members, ...claims.map(c => c.ref), ...claims.flatMap(c => c.measuredBy), ...influences]);
+  // Consequences of breach are set by the composition: for each clause, the outermost contract that attaches any decides.
+  const breachByClause = new Map();
+  for (const { c } of order) {
+    const attached = new Map();
+    for (const b of c.breaches ?? []) if (has(b.clause)) attached.set(b.clause, [...(attached.get(b.clause) ?? []), b.consequence]);
+    for (const [clause, consequences] of attached)
+      if (!breachByClause.has(clause)) breachByClause.set(clause, { clause, consequences, setBy: c.ref ?? '(draft)' });
+  }
+  const breaches = byRid(breachByClause.keys()).map(clause => breachByClause.get(clause));
+
+  const described = new Set([...members, ...claims.map(c => c.ref), ...claims.flatMap(c => c.measuredBy), ...influences,
+                             ...breaches.flatMap(b => b.consequences)]);
   return {
     contract: {
       id: spec.id, rev: spec.rev, ref: spec.ref, scale: spec.scale, title: spec.title, status: spec.status, source: spec.source,
       includes: (spec.includes ?? []).map(i => ({ ref: i.ref, mode: i.mode })),
     },
-    parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, influences,
+    parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, influences, breaches,
     nanos: Object.fromEntries(byRid(described).map(ref => [ref, nanoOf(ref)])),
   };
 }

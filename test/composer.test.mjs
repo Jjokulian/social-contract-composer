@@ -67,6 +67,21 @@ test('influences run from a measure, are in scope when both ends are, and never 
   assert.deepEqual(report(db, contracts.utilities).influences, [], 'rainfall and canopy are not part of utilities');
 });
 
+test('consequences of breach are set by the composition, and the outermost contract decides', () => {
+  const { db, refs, contracts } = buildFixture();
+  assert.deepEqual(report(db, contracts.streetTrees).breaches, [
+    { clause: refs.plant, consequences: [refs.warning], setBy: contracts.streetTrees },
+    { clause: refs.barriers, consequences: [refs.warning], setBy: contracts.streetTrees },
+  ]);
+  assert.deepEqual(report(db, contracts.town).breaches, [
+    { clause: refs.plant, consequences: [refs.fine], setBy: contracts.town },
+    { clause: refs.barriers, consequences: [refs.warning], setBy: contracts.streetTrees },
+  ]);
+  assert.equal(report(db, contracts.town).nanos[refs.fine].statement, 'A fine paid to the street fund');
+  assert.throws(() => addContract(db, { id: 'bad-breach', scale: 'micro', title: 'x', filedBy: 'planners', source: 'test',
+    members: [refs.plant], breaches: [{ clause: refs.plant, consequence: refs.shade }] }), /not a consequence/);
+});
+
 test('a micro-contract rolls its intents up and shows its own tension', () => {
   const { db, refs, contracts } = buildFixture();
   const r = report(db, contracts.streetTrees);

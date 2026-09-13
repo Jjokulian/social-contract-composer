@@ -29,6 +29,8 @@ INSERT OR IGNORE INTO kind (name, description) VALUES
   ('evaluation', 'An observed value of a measure in a named society');
 INSERT OR IGNORE INTO kind (name, description) VALUES
   ('influence',  'How one measure bears on another measure or on an intent, stated without committing to its truth');
+INSERT OR IGNORE INTO kind (name, description) VALUES
+  ('consequence', 'What breaching a clause costs, as the composing parties agree it');
 
 CREATE TABLE IF NOT EXISTS author (
   id    TEXT PRIMARY KEY,               -- a GitHub handle or a named group
@@ -182,6 +184,12 @@ CREATE TABLE IF NOT EXISTS influence_body (
   CHECK (from_rid <> to_rid)
 ) STRICT;
 
+-- A consequence of breach, e.g. exile from the territory. Which breach it follows is set by a composition (contract_breach).
+CREATE TABLE IF NOT EXISTS consequence_body (
+  rid       INTEGER PRIMARY KEY REFERENCES revision(rid),
+  statement TEXT NOT NULL
+) STRICT;
+
 -- ─── Contracts: micro-social-contracts and Social Contracts ───────────────────
 
 CREATE TABLE IF NOT EXISTS contract (
@@ -246,6 +254,15 @@ CREATE TABLE IF NOT EXISTS contract_include (    -- composition: nest under one 
   CHECK (included_crid < crid)                   -- only earlier revisions can be included, so cycles are impossible
 ) STRICT;
 
+-- Consequences of breach are set by the composition: for each clause, the outermost contract that attaches any decides.
+-- The parties that set a consequence can also reverse it by agreement.
+CREATE TABLE IF NOT EXISTS contract_breach (
+  crid            INTEGER NOT NULL REFERENCES contract_rev(crid),
+  clause_rid      INTEGER NOT NULL REFERENCES revision(rid),
+  consequence_rid INTEGER NOT NULL REFERENCES revision(rid),
+  PRIMARY KEY (crid, clause_rid, consequence_rid)
+) STRICT;
+
 -- ─── Integrity triggers ──────────────────────────────────────────────────────
 
 -- Revisions are numbered 1, 2, 3, … per nano and per contract.
@@ -305,6 +322,15 @@ WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.rid) IS NOT 'influence'
   OR (SELECT kind FROM revision_kind WHERE rid = NEW.to_rid) NOT IN ('measure', 'intent')
 BEGIN SELECT RAISE(ABORT, 'an influence goes from a measure to a measure or an intent'); END;
 
+CREATE TRIGGER IF NOT EXISTS consequence_body_kind BEFORE INSERT ON consequence_body
+WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.rid) IS NOT 'consequence'
+BEGIN SELECT RAISE(ABORT, 'consequence_body needs a consequence revision'); END;
+
+CREATE TRIGGER IF NOT EXISTS contract_breach_kind BEFORE INSERT ON contract_breach
+WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.clause_rid) IS NOT 'clause'
+  OR (SELECT kind FROM revision_kind WHERE rid = NEW.consequence_rid) IS NOT 'consequence'
+BEGIN SELECT RAISE(ABORT, 'a breach attaches a consequence to a clause'); END;
+
 CREATE TRIGGER IF NOT EXISTS claim_when_kind BEFORE INSERT ON claim_when
 WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.parameter_rid) IS NOT 'parameter'
 BEGIN SELECT RAISE(ABORT, 'claim_when must reference a parameter'); END;
@@ -343,6 +369,8 @@ CREATE TRIGGER IF NOT EXISTS assumption_body_immutable    BEFORE UPDATE ON assum
 CREATE TRIGGER IF NOT EXISTS claim_body_immutable         BEFORE UPDATE ON claim_body         BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS evaluation_body_immutable    BEFORE UPDATE ON evaluation_body    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS influence_body_immutable     BEFORE UPDATE ON influence_body     BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS consequence_body_immutable   BEFORE UPDATE ON consequence_body   BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS contract_breach_immutable    BEFORE UPDATE ON contract_breach    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_rev_immutable_u     BEFORE UPDATE ON contract_rev       BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_rev_immutable_d     BEFORE DELETE ON contract_rev       BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_intent_immutable    BEFORE UPDATE ON contract_intent    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;

@@ -162,6 +162,7 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
   return {
     contract: snap.contract, society, parameters, tree, checks,
     influences: snap.influences,
+    breaches: snap.breaches,
     claims: Object.fromEntries(claims.map(c => [c.ref, c])),
     nanos,
   };

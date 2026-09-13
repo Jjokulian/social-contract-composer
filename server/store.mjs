@@ -96,6 +96,8 @@ const WRITE = {
   influence: (db, rid, b) =>
     db.prepare('INSERT INTO influence_body (rid, from_rid, direction, to_rid, rationale) VALUES (?, ?, ?, ?, ?)')
       .run(rid, resolve(db, b.from), b.direction, resolve(db, b.to), b.rationale),
+  consequence: (db, rid, b) =>
+    db.prepare('INSERT INTO consequence_body (rid, statement) VALUES (?, ?)').run(rid, b.statement),
   evaluation: (db, rid, b) =>
     db.prepare('INSERT INTO evaluation_body (rid, measure_rid, society_id, value, observed_on, source_url) VALUES (?, ?, ?, ?, ?, ?)')
       .run(rid, resolve(db, b.measure, 'measure'), b.society, b.value, b.observedOn, b.sourceUrl),
@@ -123,7 +125,7 @@ export function addNano(db, { id, kind, filedBy, source, ...body }) {
 //   parameters: { ref: value }
 //   includes:   [{ contract: ref, mode: 'nest'|'add', under?: intent ref }]
 export function addContract(db, { id, scale, title, status = 'draft', filedBy, source,
-                                  intents = [], members = [], parameters = {}, includes = [] }) {
+                                  intents = [], members = [], parameters = {}, includes = [], breaches = [] }) {
   return db.transaction(() => {
     const existing = db.prepare('SELECT scale FROM contract WHERE id = ?').pluck().get(id);
     if (existing && existing !== scale) throw new StoreError(`${id} is already a ${existing} contract`);
@@ -154,6 +156,9 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
     for (const inc of includes)
       db.prepare('INSERT INTO contract_include (crid, included_crid, mode, under_intent_rid) VALUES (?, ?, ?, ?)')
         .run(crid, resolveContract(db, inc.contract), inc.mode, inc.under ? ownIntent(inc.under) : null);
+    for (const b of breaches)   // consequences of breach, set by this composition
+      db.prepare('INSERT INTO contract_breach (crid, clause_rid, consequence_rid) VALUES (?, ?, ?)')
+        .run(crid, resolve(db, b.clause, 'clause'), resolve(db, b.consequence, 'consequence'));
     return { ref: `${id}@${rev}`, crid };
   })();
 }
@@ -162,7 +167,7 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
 //   replace:    { oldRef: newRef }   — swaps any intent, member, parameter or nesting reference
 //   add / drop: [ref]                — members to add, or (by their current reference) to drop
 //   addIntents: [{ ref, combine?, parent? }]
-export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], filedBy, source, title, status } = {}) {
+export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], addBreaches = [], filedBy, source, title, status } = {}) {
   const crid = resolveContract(db, id);
   const current = db.prepare(`SELECT c.contract_id AS id, c.title, c.status, k.scale FROM contract_rev c
                                JOIN contract k ON k.id = c.contract_id WHERE c.crid = ?`).get(crid);
@@ -183,9 +188,12 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
       contract: db.prepare("SELECT contract_id || '@' || rev FROM contract_rev WHERE crid = ?").pluck().get(i.included_crid),
       mode: i.mode, under: i.under_intent_rid === null ? undefined : swap(refOf(db, i.under_intent_rid)),
     }));
+  const breaches = db.prepare('SELECT clause_rid, consequence_rid FROM contract_breach WHERE crid = ?').all(crid)
+    .map(b => ({ clause: swap(refOf(db, b.clause_rid)), consequence: swap(refOf(db, b.consequence_rid)) }));
   return addContract(db, {
     id: current.id, scale: current.scale, title: title ?? current.title, status: status ?? current.status, filedBy, source,
     intents: [...intents, ...addIntents], members: [...members, ...add], parameters, includes,
+    breaches: [...breaches, ...addBreaches],
   });
 }
 
@@ -222,6 +230,7 @@ const READ = {
     const i = db.prepare('SELECT from_rid, direction, to_rid, rationale FROM influence_body WHERE rid = ?').get(rid);
     return { from: refOf(db, i.from_rid), direction: i.direction, to: refOf(db, i.to_rid), rationale: i.rationale };
   },
+  consequence: (db, rid) => db.prepare('SELECT statement FROM consequence_body WHERE rid = ?').get(rid),
   evaluation: (db, rid) => {
     const e = db.prepare('SELECT measure_rid, society_id, value, observed_on, source_url FROM evaluation_body WHERE rid = ?').get(rid);
     return { measure: refOf(db, e.measure_rid), society: e.society_id, value: e.value, observedOn: e.observed_on, sourceUrl: e.source_url };
@@ -254,6 +263,8 @@ export function catalogue(db) {
     c.includes = db.prepare(`SELECT r.contract_id || '@' || r.rev AS ref, i.mode, i.under_intent_rid FROM contract_include i
                              JOIN contract_rev r ON r.crid = i.included_crid WHERE i.crid = ? ORDER BY r.crid`).all(c.crid)
       .map(i => ({ ref: i.ref, mode: i.mode, under: i.under_intent_rid === null ? null : refOf(db, i.under_intent_rid) }));
+    c.breaches = db.prepare('SELECT clause_rid, consequence_rid FROM contract_breach WHERE crid = ? ORDER BY clause_rid, consequence_rid').all(c.crid)
+      .map(b => ({ clause: refOf(db, b.clause_rid), consequence: refOf(db, b.consequence_rid) }));
     contracts[c.ref] = c;
   }
   const observations = {};

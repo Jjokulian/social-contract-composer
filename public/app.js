@@ -255,6 +255,16 @@ function renderReport(r) {
             return `<dt>${label(x.from)}</dt><dd><strong>${DIRECTION[x.direction]}</strong> it. ${esc(x.rationale)} <span class="ref">filed by ${esc(x.filedBy)}</span></dd>`;
           }).join('')}</dl>
         </div>`).join('') || empty('No influences recorded for this composition.')),
+    section('breaches', 'If a clause is breached', 'Consequences are set by the composing parties, who can also reverse them by agreement: re-admit a person, or hand back what was forfeited.',
+      r.breaches.map(b => `
+        <div class="finding">
+          <h3>${named(b.clause)}</h3>
+          <p class="clause-text" style="margin:0">${clause(b.clause)}</p>
+          <dl class="ctx">
+            <dt>consequences</dt><dd>${b.consequences.map(label).join('; ')}</dd>
+            <dt>set by</dt><dd><code>${esc(b.setBy)}</code> · reversible by the parties</dd>
+          </dl>
+        </div>`).join('') || empty('This composition attaches no consequences of breach yet. The composing parties decide which breach costs what.')),
     section('structure', 'Structure', null, `
       <div class="finding"><h3>Orphan clauses</h3>${checks.orphans.length
         ? `<p style="margin:0">${checks.orphans.map(named).join(', ')}: no standing claim connects these to an intent at the current values.</p>`
@@ -322,6 +332,7 @@ function renderPanel(r) {
     ['tensions', 'Outside claims that apply', challenged],
     ['disagreements', 'Disagreements', c.disagreements.length],
     ['determinants', 'Influences recorded', r.influences.length],
+    ['breaches', 'Clauses with consequences', r.breaches.length],
     ['structure', 'Orphan clauses', c.orphans.length],
     ['structure', 'Conflicts', c.conflicts.length],
     ['structure', 'Definition clashes', c.definitionClashes.length],
