@@ -236,6 +236,36 @@ export function describe(db, rid) {
   return { ref: `${r.id}@${r.rev}`, ...r, ...READ[r.kind](db, rid) };
 }
 
+// The whole store as plain JSON: every nano revision, every contract revision's structure, and every society's
+// latest observation of each measure. public/compose.mjs composes snapshots from it, on the server and in the browser.
+export function catalogue(db) {
+  const nanos = Object.fromEntries(db.prepare('SELECT rid FROM revision ORDER BY rid').pluck().all()
+    .map(rid => { const n = describe(db, rid); return [n.ref, n]; }));
+  const contracts = {};
+  for (const c of db.prepare(`SELECT c.crid, c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c.source
+                              FROM contract_rev c JOIN contract k ON k.id = c.contract_id ORDER BY c.crid`).all()) {
+    c.intents = db.prepare('SELECT intent_rid, combine FROM contract_intent WHERE crid = ? ORDER BY position').all(c.crid)
+      .map(i => ({ ref: refOf(db, i.intent_rid), combine: i.combine }));
+    c.edges = db.prepare('SELECT child_rid, parent_rid FROM contract_refines WHERE crid = ?').all(c.crid)
+      .map(e => ({ child: refOf(db, e.child_rid), parent: refOf(db, e.parent_rid) }));
+    c.members = db.prepare('SELECT rid FROM contract_member WHERE crid = ? ORDER BY position').pluck().all(c.crid).map(rid => refOf(db, rid));
+    c.parameters = Object.fromEntries(db.prepare('SELECT parameter_rid, value FROM contract_parameter WHERE crid = ?').all(c.crid)
+      .map(p => [refOf(db, p.parameter_rid), p.value]));
+    c.includes = db.prepare(`SELECT r.contract_id || '@' || r.rev AS ref, i.mode, i.under_intent_rid FROM contract_include i
+                             JOIN contract_rev r ON r.crid = i.included_crid WHERE i.crid = ? ORDER BY r.crid`).all(c.crid)
+      .map(i => ({ ref: i.ref, mode: i.mode, under: i.under_intent_rid === null ? null : refOf(db, i.under_intent_rid) }));
+    contracts[c.ref] = c;
+  }
+  const observations = {};
+  for (const { measure, society, ...o } of db.prepare(`SELECT m.nano_id AS measure, e.society_id AS society, e.value,
+                                                              e.observed_on AS observedOn, e.source_url AS sourceUrl
+                                                       FROM evaluation_body e JOIN revision m ON m.rid = e.measure_rid
+                                                       ORDER BY e.observed_on, e.rid`).all())
+    (observations[measure] ??= {})[society] = o;   // ascending, so the latest wins
+  const societies = db.prepare('SELECT id, label FROM society ORDER BY label').all();
+  return { nanos, contracts, observations, societies };
+}
+
 export function listContracts(db) {
   return db.prepare(`SELECT c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c.source
                      FROM contract_rev c JOIN contract k ON k.id = c.contract_id

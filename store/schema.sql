@@ -4,9 +4,10 @@
 -- a foreign key. Nano and contract revisions are append-only: to change one,
 -- add a new revision.
 --
--- The schema does structure: membership, references, kinds, immutability.
--- Evaluating claim conditions against parameter values and a society's
--- evaluations happens in server/checks.mjs, which reads these views.
+-- The schema does storage and integrity: references, kinds, immutability.
+-- Composition (public/compose.mjs) and evaluation (public/evaluate.mjs) are
+-- pure JavaScript over the catalogue exported by server/store.mjs, shared by
+-- the server, the static build and the browser.
 
 PRAGMA foreign_keys = ON;
 
@@ -348,73 +349,14 @@ CREATE TRIGGER IF NOT EXISTS contract_intent_immutable    BEFORE UPDATE ON contr
 CREATE TRIGGER IF NOT EXISTS contract_member_immutable    BEFORE UPDATE ON contract_member    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_parameter_immutable BEFORE UPDATE ON contract_parameter BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 
--- ─── Composition views ───────────────────────────────────────────────────────
-
--- Every contract revision a composition reaches, with its nesting depth (0 = the root itself).
-CREATE VIEW IF NOT EXISTS composition_contract AS
-  WITH RECURSIVE walk (root_crid, crid, depth) AS (
-    SELECT crid, crid, 0 FROM contract_rev
-    UNION
-    SELECT w.root_crid, i.included_crid, w.depth + 1
-    FROM walk w JOIN contract_include i ON i.crid = w.crid
-  )
-  SELECT root_crid, crid, MIN(depth) AS depth FROM walk GROUP BY root_crid, crid;
-
--- Every nano revision in a composition, and the contract that brought it in.
-CREATE VIEW IF NOT EXISTS composition_member AS
-  SELECT c.root_crid, m.rid, MIN(c.crid) AS via_crid
-  FROM composition_contract c
-  JOIN (
-    SELECT crid, intent_rid AS rid FROM contract_intent
-    UNION ALL SELECT crid, rid FROM contract_member
-    UNION ALL SELECT crid, parameter_rid FROM contract_parameter
-  ) m ON m.crid = c.crid
-  GROUP BY c.root_crid, m.rid;
-
--- The value each parameter takes in a composition: the outermost contract that sets it wins.
-CREATE VIEW IF NOT EXISTS composition_parameter AS
-  SELECT root_crid, parameter_rid, value FROM (
-    SELECT c.root_crid, p.parameter_rid, p.value,
-           ROW_NUMBER() OVER (PARTITION BY c.root_crid, p.parameter_rid ORDER BY c.depth, c.crid DESC) AS rn
-    FROM composition_contract c JOIN contract_parameter p ON p.crid = c.crid
-  ) WHERE rn = 1;
-
--- Claims anywhere in the store that concern a composition: both ends are members and every
--- `given` is a member. `endorsed` = 1 when the composition itself stands behind the claim.
--- Whether `when` and `assuming` hold is decided in server/checks.mjs.
-CREATE VIEW IF NOT EXISTS composition_claim AS
-  SELECT c.crid AS root_crid, cl.rid AS claim_rid,
-         EXISTS (SELECT 1 FROM composition_member e WHERE e.root_crid = c.crid AND e.rid = cl.rid) AS endorsed
-  FROM contract_rev c
-  JOIN claim_body cl
-  WHERE EXISTS (SELECT 1 FROM composition_member f WHERE f.root_crid = c.crid AND f.rid = cl.from_rid)
-    AND EXISTS (SELECT 1 FROM composition_member t WHERE t.root_crid = c.crid AND t.rid = cl.to_rid)
-    AND NOT EXISTS (
-      SELECT 1 FROM claim_given g
-      WHERE g.claim_rid = cl.rid
-        AND NOT EXISTS (SELECT 1 FROM composition_member m WHERE m.root_crid = c.crid AND m.rid = g.nano_rid)
-    );
-
--- Influences between nanos of a composition: both ends are members. Nobody endorses an influence; it is shown, not counted.
-CREATE VIEW IF NOT EXISTS composition_influence AS
-  SELECT c.crid AS root_crid, i.rid AS influence_rid
-  FROM contract_rev c
-  JOIN influence_body i
-  WHERE EXISTS (SELECT 1 FROM composition_member f WHERE f.root_crid = c.crid AND f.rid = i.from_rid)
-    AND EXISTS (SELECT 1 FROM composition_member t WHERE t.root_crid = c.crid AND t.rid = i.to_rid);
-
--- Two definitions of the same term inside one composition.
-CREATE VIEW IF NOT EXISTS composition_definition_clash AS
-  SELECT a.root_crid, da.term_id, a.rid AS rid_a, b.rid AS rid_b
-  FROM composition_member a JOIN definition_body da ON da.rid = a.rid
-  JOIN composition_member b ON b.root_crid = a.root_crid AND b.rid > a.rid
-  JOIN definition_body db ON db.rid = b.rid AND db.term_id = da.term_id;
-
--- Pairs of claims, anywhere in the store, about the same two nanos that reach different conclusions.
-CREATE VIEW IF NOT EXISTS claim_disagreement AS
-  SELECT a.rid AS claim_a, b.rid AS claim_b
-  FROM claim_body a
-  JOIN claim_body b ON b.rid > a.rid
-  JOIN revision af ON af.rid = a.from_rid JOIN revision bf ON bf.rid = b.from_rid AND bf.nano_id = af.nano_id
-  JOIN revision at ON at.rid = a.to_rid   JOIN revision bt ON bt.rid = b.to_rid   AND bt.nano_id = at.nano_id
-  WHERE a.relation <> b.relation OR a.strength <> b.strength;
+-- ─── Composition ─────────────────────────────────────────────────────────────
+-- Composition (membership, claims in scope, disagreements, clashes, influences) is computed by public/compose.mjs from
+-- the catalogue, so the server, the static build and the browser share one implementation. The views that used to
+-- compute it here are dropped, so the logic isn't kept twice.
+DROP VIEW IF EXISTS composition_contract;
+DROP VIEW IF EXISTS composition_member;
+DROP VIEW IF EXISTS composition_parameter;
+DROP VIEW IF EXISTS composition_claim;
+DROP VIEW IF EXISTS composition_influence;
+DROP VIEW IF EXISTS composition_definition_clash;
+DROP VIEW IF EXISTS claim_disagreement;

@@ -3,7 +3,7 @@
 // The server stays the primary way to run the composer; this is a second way to publish the same data.
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { openStore, listContracts, DEFAULT_PATH } from '../server/store.mjs';
+import { openStore, listContracts, catalogue, DEFAULT_PATH } from '../server/store.mjs';
 import { snapshot } from '../server/checks.mjs';
 
 const OUT = new URL('../dist/', import.meta.url);
@@ -18,6 +18,7 @@ const contracts = listContracts(db);
 write('data/contracts.json', contracts);
 write('data/societies.json', db.prepare('SELECT id, label FROM society ORDER BY label').all());
 for (const c of contracts) write(`data/snapshots/${c.id}.json`, snapshot(db, c.ref));
+write('data/catalogue.json', catalogue(db));   // every nano and contract, for composing drafts in the browser
 write('.nojekyll', '');   // serve every file as-is
 
 // Hosts cache files for minutes (GitHub Pages: max-age=600). Stamp the scripts and stylesheet with a hash of
