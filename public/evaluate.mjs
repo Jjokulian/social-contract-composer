@@ -134,6 +134,7 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
       inTension: hinders.length > 0,
       disputed: disagreements.some(d => d.to === ref),
       supports: supports.map(c => c.ref), hinders: hinders.map(c => c.ref), challenges: challenges.map(c => c.ref),
+      influences: snap.influences.filter(i => nanos[i].to === ref),   // what bears on this intent; shown, never counted
       children: kids,
     };
   };
@@ -160,6 +161,7 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
 
   return {
     contract: snap.contract, society, parameters, tree, checks,
+    influences: snap.influences,
     claims: Object.fromEntries(claims.map(c => [c.ref, c])),
     nanos,
   };

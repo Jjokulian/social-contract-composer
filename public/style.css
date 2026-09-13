@@ -105,6 +105,7 @@ select {
 .node-meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .combine { font-size: 12px; color: var(--ink-3); }
 
+.bears { grid-column: 2; margin: 2px 0 0; font-size: 13px; color: var(--ink-2); }
 details.claims { grid-column: 2; margin-top: 4px; }
 details.claims > summary { cursor: pointer; font-size: 13px; color: var(--accent); width: fit-content; }
 details.claims > summary:hover { text-decoration: underline; }

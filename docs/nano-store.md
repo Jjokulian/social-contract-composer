@@ -15,7 +15,7 @@ The composer never solves for anything. It takes a given composition and compute
 ```
 Social Contract          a composition of contracts (nested under an intent, or added alongside)
 └─ micro-social-contract an intent tree + the nanos that serve it
-   └─ nano               an intent, clause, definition, parameter, measure, assumption, claim or evaluation
+   └─ nano               an intent, clause, definition, parameter, measure, assumption, claim, influence or evaluation
 ```
 
 ## Architecture
@@ -49,9 +49,9 @@ The static build (`tools/build-static.mjs`, deployed by `.github/workflows/pages
 
 | Field | Meaning |
 |---|---|
-| `from`, `relation`, `to`, `strength` | e.g. *guardianship-transfer supports protect-babies (contributes)* |
+| `from`, `relation`, `to`, `strength` | e.g. *plant-trees supports shade-walkers (sufficient)* |
 | `given` | Nanos that must be in the composition for the claim to apply |
-| `when` | Conditions on parameter values, e.g. `placement-window-months <= 12` |
+| `when` | Conditions on parameter values, e.g. `tree-spacing <= 15` |
 | `assuming` | Beliefs about the society, as conditions on measures where possible |
 | `measuredBy` | How a society would check it |
 | `rationale`, `filedBy`, `source` | Why, who, and where it came from |
@@ -70,6 +70,10 @@ Two claims disagree when they share `from` and `to` but differ in `relation` or 
 | **Divergent context** | One considers nanos the other ignores | Whether those nanos belong in the picture |
 
 Conditions are simple comparisons against a constant, so "disjoint?" is interval arithmetic.
+
+### Influences
+
+An **influence** records that one measure *raises*, *lowers*, *bears on* or *stands in for* another measure or an intent. Examples: *environmental load lowers the baby's development rate*, and *weeks since the last menstrual period stand in for development*. Like a claim, it is attributed and open to evaluation, but it doesn't assert that it's true, and it never counts towards coverage. It shows what bears on what, so each group can decide which influences it believes. An influence is in scope when both of its ends are in the composition.
 
 ## The composition report
 

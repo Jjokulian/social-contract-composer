@@ -27,6 +27,8 @@ export function snapshot(db, contractRef) {
     .filter(d => scoped.has(d.claim_a) && scoped.has(d.claim_b))
     .map(d => [ref(d.claim_a), ref(d.claim_b)]);
   for (const c of claims) c.measuredBy.forEach(m => nano(resolve(db, m)));
+  const influences = db.prepare('SELECT influence_rid FROM composition_influence WHERE root_crid = ? ORDER BY influence_rid')
+    .pluck().all(crid).map(ref);
 
   // Every society's latest observation of each measure the claims mention.
   const measures = new Set(claims.flatMap(c => [...c.measuredBy, ...c.assuming.filter(a => a.condition).map(a => a.condition.measure)].map(nanoId)));
@@ -59,7 +61,7 @@ export function snapshot(db, contractRef) {
     .map(d => ({ term: d.term, definitions: [ref(d.rid_a), ref(d.rid_b)] }));
 
   return {
-    contract, parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes,
+    contract, parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, influences,
     nanos: Object.fromEntries([...cache.values()].map(n => [n.ref, n])),
   };
 }

@@ -94,13 +94,16 @@ const humanize = ref => {
 };
 
 function formatValue(p, value) {
-  return p.unit === 'share-of-earnings' ? `${Math.round(value * 100)}%` : String(value);
+  return p.unit === 'percent' ? `${value}%` : String(value);
 }
+
+const DIRECTION = { 'raises': 'raises', 'lowers': 'lowers', 'bears-on': 'bears on', 'stands-in-for': 'stands in for' };
 
 function renderReport(r) {
   const nano = ref => r.nanos[ref] ?? r.claims[ref] ?? { ref };
   const named = ref => `<span title="${esc(nano(ref).text ?? nano(ref).statement ?? ref)}">${esc(humanize(ref))}</span>`;
   const intentText = ref => esc(nano(ref).statement ?? humanize(ref));
+  const label = ref => esc(nano(ref).label ?? nano(ref).statement ?? humanize(ref));
 
   const flat = [];
   const walk = n => { if (!flat.some(f => f.ref === n.ref)) flat.push(n); n.children.forEach(walk); };
@@ -166,6 +169,7 @@ function renderReport(r) {
           <span class="cov ${node.coverage}">${node.coverage}</span>
           <span class="statement">${esc(node.statement)}</span>
           <div class="node-meta">${flags}</div>
+          ${node.influences.length ? `<p class="bears">Bears on it: ${node.influences.map(i => label(nano(i).from)).join(', ')}</p>` : ''}
           ${all.length ? `<details class="claims"><summary>${tally || 'claims'}</summary><div class="claim-list">${all.map(claimHtml).join('')}</div></details>` : ''}
         </div>
         ${node.children.length ? `<ul>${node.children.map(nodeHtml).join('')}</ul>` : ''}
@@ -234,6 +238,15 @@ function renderReport(r) {
           <h3>${named(t.clause)}</h3>
           <p style="margin:0">Supports ${t.supports.map(intentText).join(', ') || 'nothing'}; hinders ${t.hinders.map(intentText).join(', ')}.</p>
         </div>`).join('') + outside.map(claimHtml).join('')) || empty('No tensions, and no outside claims in scope.')),
+    section('determinants', 'What bears on what', 'Influences recorded without asserting that they are true. Each group that adopts the contract decides which of them it believes.',
+      [...new Set(r.influences.map(i => nano(i).to))].map(target => `
+        <div class="finding">
+          <h3>${label(target)}</h3>
+          <dl class="ctx">${r.influences.filter(i => nano(i).to === target).map(i => {
+            const x = nano(i);
+            return `<dt>${label(x.from)}</dt><dd><strong>${DIRECTION[x.direction]}</strong> it. ${esc(x.rationale)} <span class="ref">filed by ${esc(x.filedBy)}</span></dd>`;
+          }).join('')}</dl>
+        </div>`).join('') || empty('No influences recorded for this composition.')),
     section('structure', 'Structure', null, `
       <div class="finding"><h3>Orphan clauses</h3>${checks.orphans.length
         ? `<p style="margin:0">${checks.orphans.map(named).join(', ')}: no standing claim connects these to an intent at the current values.</p>`
@@ -300,6 +313,7 @@ function renderPanel(r) {
     ['tensions', 'Tensions', c.tensions.length],
     ['tensions', 'Outside claims that apply', challenged],
     ['disagreements', 'Disagreements', c.disagreements.length],
+    ['determinants', 'Influences recorded', r.influences.length],
     ['structure', 'Orphan clauses', c.orphans.length],
     ['structure', 'Conflicts', c.conflicts.length],
     ['structure', 'Definition clashes', c.definitionClashes.length],

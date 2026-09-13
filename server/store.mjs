@@ -93,6 +93,9 @@ const WRITE = {
     for (const ref of b.measuredBy ?? [])
       db.prepare('INSERT INTO claim_measure (claim_rid, measure_rid) VALUES (?, ?)').run(rid, resolve(db, ref, 'measure'));
   },
+  influence: (db, rid, b) =>
+    db.prepare('INSERT INTO influence_body (rid, from_rid, direction, to_rid, rationale) VALUES (?, ?, ?, ?, ?)')
+      .run(rid, resolve(db, b.from), b.direction, resolve(db, b.to), b.rationale),
   evaluation: (db, rid, b) =>
     db.prepare('INSERT INTO evaluation_body (rid, measure_rid, society_id, value, observed_on, source_url) VALUES (?, ?, ?, ?, ?, ?)')
       .run(rid, resolve(db, b.measure, 'measure'), b.society, b.value, b.observedOn, b.sourceUrl),
@@ -183,6 +186,10 @@ const READ = {
         .map(a => ({ ref: refOf(db, a), ...READ.assumption(db, a) })),
       measuredBy: db.prepare('SELECT measure_rid FROM claim_measure WHERE claim_rid = ?').pluck().all(rid).map(r => refOf(db, r)),
     };
+  },
+  influence: (db, rid) => {
+    const i = db.prepare('SELECT from_rid, direction, to_rid, rationale FROM influence_body WHERE rid = ?').get(rid);
+    return { from: refOf(db, i.from_rid), direction: i.direction, to: refOf(db, i.to_rid), rationale: i.rationale };
   },
   evaluation: (db, rid) => {
     const e = db.prepare('SELECT measure_rid, society_id, value, observed_on, source_url FROM evaluation_body WHERE rid = ?').get(rid);

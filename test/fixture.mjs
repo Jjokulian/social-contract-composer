@@ -36,6 +36,8 @@ export function buildFixture() {
 
   const spacing = add('tree-spacing', 'parameter', { label: 'Tree spacing', unit: 'metre', min: 5, max: 30, meaning: 'Distance between street trees.' });
   const rainfall = add('annual-rainfall', 'measure', { label: 'Annual rainfall', unit: 'mm', description: 'Mean rainfall over ten years.' });
+  const canopy = add('canopy-cover', 'measure', { label: 'Canopy cover', unit: 'count', description: 'Trees with a closed crown per kilometre of street.' });
+  const rainFeedsCanopy = add('rain-feeds-canopy', 'influence', { from: rainfall, direction: 'raises', to: canopy, rationale: 'Watered trees grow larger crowns.' }, 'critic');
   const wet = add('enough-rain', 'assumption', { statement: 'There is enough rain for trees to reach full canopy.', condition: { measure: rainfall, op: '>=', value: 500 } });
   const dry = add('too-little-rain', 'assumption', { statement: 'Trees stay small for lack of rain.', condition: { measure: rainfall, op: '<', value: 500 } }, 'critic');
 
@@ -63,10 +65,12 @@ export function buildFixture() {
       rationale: 'Planting at every interval puts trees on top of cable corridors.' }, 'critic'),
   };
 
+  const canopyShades = add('canopy-shades', 'influence', { from: canopy, direction: 'bears-on', to: shade, rationale: 'Shade comes from closed crowns.' }, 'critic');
+
   const streetTrees = addContract(db, {
     id: 'street-trees', scale: 'micro', title: 'Street Trees', filedBy: 'planners', source: 'fixture',
     intents: [{ ref: greenStreets }, { ref: shade, parent: greenStreets }, { ref: safe, parent: greenStreets }],
-    members: [plant, barriers, water, treeNarrow, rainfall, wet, c.shadeDense, c.shadeWet, c.rootsLift, c.barrierHolds],
+    members: [plant, barriers, water, treeNarrow, rainfall, canopy, wet, c.shadeDense, c.shadeWet, c.rootsLift, c.barrierHolds],
     parameters: { [spacing]: 10 },
   });
   const utilities = addContract(db, {
@@ -83,6 +87,7 @@ export function buildFixture() {
   add('dryville-rain', 'evaluation', { measure: rainfall, society: 'dryville', value: 300, observedOn: '2030', sourceUrl: 'https://example.org/dryville' }, 'critic');
   add('wetton-rain', 'evaluation', { measure: rainfall, society: 'wetton', value: 900, observedOn: '2030', sourceUrl: 'https://example.org/wetton' }, 'critic');
 
-  return { db, refs: { greenStreets, shade, safe, power, quiet, livable, plant, barriers, cables, party, spacing, ...c },
+  return { db, refs: { greenStreets, shade, safe, power, quiet, livable, plant, barriers, cables, party, spacing,
+                       rainfall, canopy, rainFeedsCanopy, canopyShades, ...c },
            contracts: { streetTrees: streetTrees.ref, utilities: utilities.ref, town: town.ref } };
 }

@@ -26,6 +26,8 @@ INSERT OR IGNORE INTO kind (name, description) VALUES
   ('assumption', 'A belief about the society, ideally a condition on a measure'),
   ('claim',      'How one nano relates to another, and the context that relation depends on'),
   ('evaluation', 'An observed value of a measure in a named society');
+INSERT OR IGNORE INTO kind (name, description) VALUES
+  ('influence',  'How one measure bears on another measure or on an intent, stated without committing to its truth');
 
 CREATE TABLE IF NOT EXISTS author (
   id    TEXT PRIMARY KEY,               -- a GitHub handle or a named group
@@ -168,6 +170,17 @@ CREATE TABLE IF NOT EXISTS evaluation_body (
   source_url  TEXT    NOT NULL
 ) STRICT;
 
+-- A determinant: what bears on a measure or an intent. Like a claim it is attributed and open to evaluation;
+-- unlike a claim it never counts towards coverage.
+CREATE TABLE IF NOT EXISTS influence_body (
+  rid       INTEGER PRIMARY KEY REFERENCES revision(rid),
+  from_rid  INTEGER NOT NULL REFERENCES revision(rid),
+  direction TEXT    NOT NULL CHECK (direction IN ('raises', 'lowers', 'bears-on', 'stands-in-for')),
+  to_rid    INTEGER NOT NULL REFERENCES revision(rid),
+  rationale TEXT    NOT NULL,
+  CHECK (from_rid <> to_rid)
+) STRICT;
+
 -- ─── Contracts: micro-social-contracts and Social Contracts ───────────────────
 
 CREATE TABLE IF NOT EXISTS contract (
@@ -285,6 +298,12 @@ WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.rid) IS NOT 'claim'
      OR (SELECT kind FROM revision_kind WHERE rid = NEW.to_rid)   NOT IN ('clause', 'definition')))
 BEGIN SELECT RAISE(ABORT, 'claim ends have the wrong kinds: supports/hinders go clause → intent; conflicts go between clauses or definitions'); END;
 
+CREATE TRIGGER IF NOT EXISTS influence_body_kind BEFORE INSERT ON influence_body
+WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.rid) IS NOT 'influence'
+  OR (SELECT kind FROM revision_kind WHERE rid = NEW.from_rid) IS NOT 'measure'
+  OR (SELECT kind FROM revision_kind WHERE rid = NEW.to_rid) NOT IN ('measure', 'intent')
+BEGIN SELECT RAISE(ABORT, 'an influence goes from a measure to a measure or an intent'); END;
+
 CREATE TRIGGER IF NOT EXISTS claim_when_kind BEFORE INSERT ON claim_when
 WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.parameter_rid) IS NOT 'parameter'
 BEGIN SELECT RAISE(ABORT, 'claim_when must reference a parameter'); END;
@@ -322,6 +341,7 @@ CREATE TRIGGER IF NOT EXISTS measure_body_immutable       BEFORE UPDATE ON measu
 CREATE TRIGGER IF NOT EXISTS assumption_body_immutable    BEFORE UPDATE ON assumption_body    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS claim_body_immutable         BEFORE UPDATE ON claim_body         BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS evaluation_body_immutable    BEFORE UPDATE ON evaluation_body    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS influence_body_immutable     BEFORE UPDATE ON influence_body     BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_rev_immutable_u     BEFORE UPDATE ON contract_rev       BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_rev_immutable_d     BEFORE DELETE ON contract_rev       BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_intent_immutable    BEFORE UPDATE ON contract_intent    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
@@ -374,6 +394,14 @@ CREATE VIEW IF NOT EXISTS composition_claim AS
       WHERE g.claim_rid = cl.rid
         AND NOT EXISTS (SELECT 1 FROM composition_member m WHERE m.root_crid = c.crid AND m.rid = g.nano_rid)
     );
+
+-- Influences between nanos of a composition: both ends are members. Nobody endorses an influence; it is shown, not counted.
+CREATE VIEW IF NOT EXISTS composition_influence AS
+  SELECT c.crid AS root_crid, i.rid AS influence_rid
+  FROM contract_rev c
+  JOIN influence_body i
+  WHERE EXISTS (SELECT 1 FROM composition_member f WHERE f.root_crid = c.crid AND f.rid = i.from_rid)
+    AND EXISTS (SELECT 1 FROM composition_member t WHERE t.root_crid = c.crid AND t.rid = i.to_rid);
 
 -- Two definitions of the same term inside one composition.
 CREATE VIEW IF NOT EXISTS composition_definition_clash AS

@@ -40,6 +40,18 @@ test('the store rejects references of the wrong kind and rolls the whole write b
     parameters: { [refs.spacing]: 50 } }), /inside its domain/);
 });
 
+test('influences run from a measure, are in scope when both ends are, and never change coverage', () => {
+  const { db, refs, contracts } = buildFixture();
+  assert.throws(() => addNano(db, { id: 'bad-influence', kind: 'influence', filedBy: 'critic', source: 'test',
+    from: refs.shade, direction: 'raises', to: refs.canopy, rationale: 'intent as a source' }), /from a measure/);
+  const r = report(db, contracts.streetTrees);
+  assert.deepEqual(r.influences, [refs.rainFeedsCanopy, refs.canopyShades]);
+  assert.deepEqual(find(r.tree, refs.shade).influences, [refs.canopyShades]);
+  assert.equal(r.nanos[refs.canopyShades].direction, 'bears-on');
+  assert.equal(find(r.tree, refs.shade).coverage, 'claimed');
+  assert.deepEqual(report(db, contracts.utilities).influences, [], 'rainfall and canopy are not part of utilities');
+});
+
 test('a micro-contract rolls its intents up and shows its own tension', () => {
   const { db, refs, contracts } = buildFixture();
   const r = report(db, contracts.streetTrees);
