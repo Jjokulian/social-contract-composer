@@ -193,6 +193,9 @@ export function report(db, contractRef, { parameters: overrides = {}, society = 
     disagreements,
   };
 
+  // Describe every nano in scope, so a client can render labels rather than bare references.
+  db.prepare('SELECT rid FROM composition_member WHERE root_crid = ?').pluck().all(crid).forEach(nano);
+
   return {
     contract, society, parameters, tree, checks,
     claims: Object.fromEntries(claims.map(c => [c.ref, c])),

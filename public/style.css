@@ -1,0 +1,172 @@
+/* Human words (intents, clauses, rationales) are set in the serif; machine structure (refs, states, values) in sans and mono. */
+:root {
+  color-scheme: light;
+  --ground: #f2f3ee;
+  --surface: #fbfbf8;
+  --ink: #1b211e;
+  --ink-2: #4d5650;
+  --ink-3: #78817b;
+  --rule: #d9ddd4;
+  --rule-strong: #bec5bb;
+  --accent: #8a2f63;
+  --accent-wash: rgba(138, 47, 99, 0.08);
+  --claimed: #2c7549;
+  --thin: #9c6410;
+  --gap: #b0372d;
+  --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #121614; --surface: #1a1f1c; --ink: #e6ebe7; --ink-2: #a9b3ad; --ink-3: #7f8983;
+    --rule: #2b322e; --rule-strong: #3d4540; --accent: #d98bb6; --accent-wash: rgba(217, 139, 182, 0.1);
+    --claimed: #62bd86; --thin: #dfa54a; --gap: #e8756b;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #121614; --surface: #1a1f1c; --ink: #e6ebe7; --ink-2: #a9b3ad; --ink-3: #7f8983;
+  --rule: #2b322e; --rule-strong: #3d4540; --accent: #d98bb6; --accent-wash: rgba(217, 139, 182, 0.1);
+  --claimed: #62bd86; --thin: #dfa54a; --gap: #e8756b;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.55 var(--sans); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+code, .ref { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+/* ── Bar ─────────────────────────────────────────────────────────────── */
+.bar {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px;
+  padding-block: 10px; padding-inline: max(16px, calc((100vw - 1200px) / 2));
+  background: var(--surface); border-bottom: 1px solid var(--rule);
+}
+.brand { font-weight: 600; letter-spacing: 0.01em; }
+.bar-controls { display: flex; flex-wrap: wrap; gap: 12px 20px; }
+.field { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+select {
+  font: 14px var(--sans); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule-strong); border-radius: 4px; padding: 5px 8px; max-width: 16rem;
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────── */
+.layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 48px;
+  max-width: 1200px; margin: 0 auto; padding-block: 32px 80px; padding-inline: 16px;
+}
+.doc { display: grid; gap: 48px; min-width: 0; }
+.panel { position: sticky; top: 72px; align-self: start; display: grid; gap: 28px; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .panel { position: static; order: -1; }
+}
+.notice { color: var(--ink-2); max-width: 60ch; }
+.notice.error { color: var(--gap); }
+
+/* ── Head of the contract ────────────────────────────────────────────── */
+.eyebrow { font: 500 12px var(--mono); color: var(--ink-3); letter-spacing: 0.02em; margin: 0 0 10px; }
+.title { font: 600 34px/1.15 var(--serif); }
+.thesis { font: italic 19px/1.45 var(--serif); color: var(--ink-2); margin: 10px 0 0; max-width: 60ch; }
+.coverage-bar { display: flex; gap: 2px; height: 10px; margin-top: 22px; max-width: 520px; }
+.coverage-bar span { border-radius: 2px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font-size: 13px; color: var(--ink-2); }
+
+/* ── Sections ────────────────────────────────────────────────────────── */
+.section > h2 {
+  font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3);
+  padding-bottom: 8px; border-bottom: 1px solid var(--rule); margin-bottom: 16px;
+}
+.section > .lede { color: var(--ink-2); max-width: 65ch; margin: -6px 0 16px; font-size: 14px; }
+
+/* ── Coverage states and flags: shape carries the state as well as colour ─ */
+.cov { display: inline-flex; align-items: center; gap: 6px; font: 500 12px var(--sans); white-space: nowrap; color: var(--ink-2); }
+.cov::before { content: ""; width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; flex: none; }
+.cov.claimed::before { background: var(--claimed); border-color: var(--claimed); }
+.cov.thin::before { border-color: var(--thin); background: linear-gradient(90deg, var(--thin) 50%, transparent 50%); }
+.cov.gap::before { border-color: var(--gap); }
+.swatch-claimed { background: var(--claimed); } .swatch-thin { background: var(--thin); } .swatch-gap { background: var(--gap); }
+.flag {
+  display: inline-flex; align-items: center; gap: 4px; font: 500 12px var(--sans); color: var(--ink-2);
+  border: 1px solid var(--rule-strong); border-radius: 999px; padding: 1px 8px; white-space: nowrap;
+}
+.flag b { font-weight: 600; color: var(--ink); }
+
+/* ── Intent tree ─────────────────────────────────────────────────────── */
+.tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+.tree ul { margin-left: 5px; padding-left: 22px; border-left: 1px solid var(--rule-strong); }
+.intent { padding-top: 14px; }
+.node { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 4px 14px; align-items: baseline; }
+.statement { font: 400 18px/1.4 var(--serif); }
+.tree > .intent > .node .statement { font-weight: 600; }
+.node-meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.combine { font-size: 12px; color: var(--ink-3); }
+
+details.claims { grid-column: 2; margin-top: 4px; }
+details.claims > summary { cursor: pointer; font-size: 13px; color: var(--accent); width: fit-content; }
+details.claims > summary:hover { text-decoration: underline; }
+.claim-list { display: grid; margin-top: 8px; border-top: 1px solid var(--rule); }
+
+/* ── Claims ──────────────────────────────────────────────────────────── */
+.claim { padding-block: 12px; border-bottom: 1px solid var(--rule); display: grid; gap: 6px; }
+.claim.outside { background: var(--accent-wash); padding-inline: 12px; }
+.claim-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; font-size: 12px; }
+.relation { font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: 0.08em; }
+.relation.hinders, .relation.conflicts { color: var(--gap); }
+.relation.supports { color: var(--claimed); }
+.status { font-size: 12px; color: var(--ink-2); }
+.status.inactive, .status.contradicted { text-decoration: line-through; color: var(--ink-3); }
+.clause-text { font: 16px/1.5 var(--serif); max-width: 65ch; }
+.modality { font-variant-caps: all-small-caps; letter-spacing: 0.06em; font-weight: 600; }
+.rationale { font: italic 15px/1.5 var(--serif); color: var(--ink-2); max-width: 65ch; }
+.ctx { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 2px 0 0; font-size: 13px; }
+.ctx dt { color: var(--ink-3); }
+.ctx dd { margin: 0; color: var(--ink-2); }
+.holds { color: var(--claimed); } .fails { color: var(--gap); }
+
+/* ── Findings (disagreements, tensions, orphans…) ────────────────────── */
+.finding { padding-block: 16px; border-bottom: 1px solid var(--rule); display: grid; gap: 10px; }
+.finding h3 { font: 600 17px/1.35 var(--serif); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 640px) { .pair { grid-template-columns: 1fr; } }
+.side { display: grid; gap: 4px; align-content: start; }
+.side-label { font: 600 12px var(--mono); color: var(--ink-3); }
+.diff { width: 100%; border-collapse: collapse; font-size: 13px; }
+.diff th { text-align: left; font-weight: 500; color: var(--ink-3); padding: 4px 12px 4px 0; vertical-align: top; white-space: nowrap; width: 1%; }
+.diff td { padding: 4px 0; color: var(--ink-2); border-top: 1px solid var(--rule); }
+.diff tr:first-child td { border-top: 0; }
+.kind-chip { font: 600 12px var(--sans); color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; }
+.settled { font-size: 14px; color: var(--ink); }
+.empty { color: var(--ink-3); font-size: 14px; }
+.defs { display: grid; gap: 14px; margin: 0; }
+.defs dt { font: 600 16px var(--serif); }
+.defs dd { margin: 2px 0 0; font: 16px/1.5 var(--serif); color: var(--ink-2); max-width: 65ch; }
+
+/* ── Panel ───────────────────────────────────────────────────────────── */
+.panel h2 { font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3); margin-bottom: 10px; }
+.param { display: grid; gap: 4px; padding-block: 10px; border-top: 1px solid var(--rule); }
+.param-head { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.param-value { font: 500 14px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.param input[type="range"] { width: 100%; accent-color: var(--accent); margin: 2px 0; }
+.param-foot { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--ink-3); }
+.param-foot button {
+  font: 500 12px var(--sans); color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer;
+}
+.param-foot button:hover { text-decoration: underline; }
+.param.changed .param-value { color: var(--accent); }
+.tally { list-style: none; margin: 0; padding: 0; display: grid; }
+.tally li { border-top: 1px solid var(--rule); }
+.tally a {
+  display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; color: var(--ink); text-decoration: none; font-size: 14px;
+}
+.tally a:hover span:first-child { text-decoration: underline; }
+.tally .n { font: 500 14px var(--mono); font-variant-numeric: tabular-nums; }
+.tally .n.zero { color: var(--ink-3); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .doc { transition: opacity 120ms ease; }
+  .doc.busy { opacity: 0.6; }
+}
