@@ -22,6 +22,11 @@ export function openStore(path = DEFAULT_PATH, { readonly = false } = {}) {
 function migrate(db) {
   const columns = db.prepare('PRAGMA table_info(clause_body)').all().map(c => c.name);
   if (!columns.includes('binding')) db.exec("ALTER TABLE clause_body ADD COLUMN binding TEXT CHECK (binding IN ('work', 'abide', 'liberty'))");
+  if (!db.prepare('PRAGMA table_info(contract_rev)').all().some(c => c.name === 'territory_rid'))
+    db.exec('ALTER TABLE contract_rev ADD COLUMN territory_rid INTEGER REFERENCES revision(rid)');
+  db.exec(`CREATE TRIGGER IF NOT EXISTS contract_rev_territory_kind BEFORE INSERT ON contract_rev
+           WHEN NEW.territory_rid IS NOT NULL AND (SELECT kind FROM revision_kind WHERE rid = NEW.territory_rid) IS NOT 'territory'
+           BEGIN SELECT RAISE(ABORT, 'a milli is implemented on a territory revision'); END;`);
 }
 
 // What a clause binds its role to, when the clause doesn't state it: follows the modality.
@@ -108,6 +113,13 @@ const WRITE = {
   influence: (db, rid, b) =>
     db.prepare('INSERT INTO influence_body (rid, from_rid, direction, to_rid, rationale) VALUES (?, ?, ?, ?, ?)')
       .run(rid, resolve(db, b.from), b.direction, resolve(db, b.to), b.rationale),
+  territory: (db, rid, b) => {   // a coordinate segment: GeoJSON in a named frame
+    const g = b.geometry;
+    if (!g || !['Point', 'Polygon', 'MultiPolygon'].includes(g.type) || !Array.isArray(g.coordinates))
+      throw new StoreError('a territory needs a GeoJSON Point, Polygon or MultiPolygon geometry');
+    if (!b.frame) throw new StoreError('a territory needs a coordinate frame, such as WGS84');
+    db.prepare('INSERT INTO territory_body (rid, name, frame, geometry) VALUES (?, ?, ?, ?)').run(rid, b.name, b.frame, JSON.stringify(g));
+  },
   consequence: (db, rid, b) =>
     db.prepare('INSERT INTO consequence_body (rid, statement) VALUES (?, ?)').run(rid, b.statement),
   evaluation: (db, rid, b) =>
@@ -117,7 +129,8 @@ const WRITE = {
 
 // The field that holds a nano's words, per kind: where its picos are referred to.
 export const TEXT_FIELD = { intent: 'statement', clause: 'text', definition: 'meaning', claim: 'rationale', assumption: 'statement',
-                            influence: 'rationale', consequence: 'statement', measure: 'description', parameter: 'meaning' };
+                            influence: 'rationale', consequence: 'statement', measure: 'description', parameter: 'meaning',
+                            territory: 'name' };
 
 // Add a revision of a nano (revision 1 creates the nano). Returns { ref, rid }.
 //   picos: [{ phrase, pico }] — the phrases in its text that refer to which pico revisions, fixed with this revision.
@@ -147,15 +160,15 @@ export function addNano(db, { id, kind, filedBy, source, picos = [], ...body }) 
 //   members:    [ref]                                                     — clauses, definitions, measures, assumptions, endorsed claims
 //   parameters: { ref: value }
 //   includes:   [{ contract: ref, mode: 'nest'|'add', under?: intent ref }]
-export function addContract(db, { id, scale, title, status = 'draft', filedBy, source,
+export function addContract(db, { id, scale, title, status = 'draft', filedBy, source, territory = null,
                                   intents = [], members = [], parameters = {}, includes = [], breaches = [], enforcement = [] }) {
   return db.transaction(() => {
     const existing = db.prepare('SELECT scale FROM contract WHERE id = ?').pluck().get(id);
     if (existing && existing !== scale) throw new StoreError(`${id} is already a ${existing} contract`);
     if (!existing) db.prepare('INSERT INTO contract (id, scale) VALUES (?, ?)').run(id, scale);
     const rev = db.prepare('SELECT COALESCE(MAX(rev), 0) + 1 FROM contract_rev WHERE contract_id = ?').pluck().get(id);
-    const crid = Number(db.prepare('INSERT INTO contract_rev (contract_id, rev, title, status, filed_by, source) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(id, rev, title, status, filedBy, source).lastInsertRowid);
+    const crid = Number(db.prepare('INSERT INTO contract_rev (contract_id, rev, title, territory_rid, status, filed_by, source) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, rev, title, territory ? resolve(db, territory, 'territory') : null, status, filedBy, source).lastInsertRowid);
 
     const intentRid = new Map();
     intents.forEach((it, position) => {
@@ -194,9 +207,9 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
 //   addIntents: [{ ref, combine?, parent? }]
 //   dropEdges:  [{ child, parent }]                                     — refinements to remove, by current references
 export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], dropEdges = [], addBreaches = [], addEnforcement = [],
-                                         filedBy, source, title, status } = {}) {
+                                         filedBy, source, title, status, territory } = {}) {
   const crid = resolveContract(db, id);
-  const current = db.prepare(`SELECT c.contract_id AS id, c.title, c.status, k.scale FROM contract_rev c
+  const current = db.prepare(`SELECT c.contract_id AS id, c.title, c.status, c.territory_rid, k.scale FROM contract_rev c
                                JOIN contract k ON k.id = c.contract_id WHERE c.crid = ?`).get(crid);
   const swap = ref => replace[ref] ?? ref;
   const parents = new Map();
@@ -219,7 +232,8 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
   const breaches = db.prepare('SELECT clause_rid, consequence_rid FROM contract_breach WHERE crid = ?').all(crid)
     .map(b => ({ clause: swap(refOf(db, b.clause_rid)), consequence: swap(refOf(db, b.consequence_rid)) }));
   return addContract(db, {
-    id: current.id, scale: current.scale, title: title ?? current.title, status: status ?? current.status, filedBy, source,
+    id: current.id, scale: current.scale, title: title ?? current.title, status: status ?? current.status,
+    territory: territory ?? (current.territory_rid ? swap(refOf(db, current.territory_rid)) : null), filedBy, source,
     intents: mergeIntents(intents, addIntents), members: [...members, ...add], parameters, includes,
     breaches: [...breaches, ...addBreaches],
     enforcement: [
@@ -283,6 +297,10 @@ const READ = {
     return { from: refOf(db, i.from_rid), direction: i.direction, to: refOf(db, i.to_rid), rationale: i.rationale };
   },
   consequence: (db, rid) => db.prepare('SELECT statement FROM consequence_body WHERE rid = ?').get(rid),
+  territory: (db, rid) => {
+    const t = db.prepare('SELECT name, frame, geometry FROM territory_body WHERE rid = ?').get(rid);
+    return { ...t, geometry: JSON.parse(t.geometry) };
+  },
   evaluation: (db, rid) => {
     const e = db.prepare('SELECT measure_rid, society_id, value, observed_on, source_url FROM evaluation_body WHERE rid = ?').get(rid);
     return { measure: refOf(db, e.measure_rid), society: e.society_id, value: e.value, observedOn: e.observed_on, sourceUrl: e.source_url };
@@ -305,8 +323,10 @@ export function catalogue(db) {
   const nanos = Object.fromEntries(db.prepare('SELECT rid FROM revision ORDER BY rid').pluck().all()
     .map(rid => { const n = describe(db, rid); return [n.ref, n]; }));
   const contracts = {};
-  for (const c of db.prepare(`SELECT c.crid, c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c.source
+  for (const c of db.prepare(`SELECT c.crid, c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.territory_rid, c.status, c.source
                               FROM contract_rev c JOIN contract k ON k.id = c.contract_id ORDER BY c.crid`).all()) {
+    c.territory = c.territory_rid === null ? null : refOf(db, c.territory_rid);
+    delete c.territory_rid;
     c.intents = db.prepare('SELECT intent_rid, combine FROM contract_intent WHERE crid = ? ORDER BY position').all(c.crid)
       .map(i => ({ ref: refOf(db, i.intent_rid), combine: i.combine }));
     // Children in the order the contract places its intents, never in storage order (a rewritten intent is a newer row).
@@ -338,8 +358,9 @@ export function catalogue(db) {
 }
 
 export function listContracts(db) {
-  return db.prepare(`SELECT c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c.source
-                     FROM contract_rev c JOIN contract k ON k.id = c.contract_id
+  return db.prepare(`SELECT c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c.source,
+                            t.nano_id || '@' || t.rev AS territory
+                     FROM contract_rev c JOIN contract k ON k.id = c.contract_id LEFT JOIN revision t ON t.rid = c.territory_rid
                      WHERE c.rev = (SELECT MAX(rev) FROM contract_rev x WHERE x.contract_id = c.contract_id)
                      ORDER BY k.scale DESC, c.title`).all();
 }

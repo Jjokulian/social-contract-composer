@@ -97,6 +97,7 @@ export function compose(cat, spec) {
 
   const described = new Set([...members, ...claims.map(c => c.ref), ...claims.flatMap(c => c.measuredBy), ...influences,
                              ...breaches.flatMap(b => b.consequences)]);
+  if (spec.territory && cat.nanos[spec.territory]) described.add(spec.territory);   // a draft may name a territory in words only
 
   // The picos every described nano refers to (recorded with the nano), and the picos those picos refer to.
   for (const queue = [...described]; queue.length;)
@@ -122,6 +123,7 @@ export function compose(cat, spec) {
   return {
     contract: {
       id: spec.id, rev: spec.rev, ref: spec.ref, scale: spec.scale, title: spec.title, status: spec.status, source: spec.source,
+      territory: spec.territory ?? null,
       includes: (spec.includes ?? []).map(i => ({ ref: i.ref, mode: i.mode })),
     },
     parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, staleReferences, influences, breaches,
