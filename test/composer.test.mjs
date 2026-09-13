@@ -63,6 +63,12 @@ test('revising a contract swaps pinned references and leaves claims about the ol
   assert.equal(r.claims[refs.shadeDense], undefined, 'claims pinned to plant-trees@1 no longer apply');
   assert.ok(r.claims[refs.barrierHolds], 'claims about untouched clauses carry over');
   assert.deepEqual(report(db, contracts.town).tree[0].children[0].ref, refs.greenStreets, 'the town still pins street-trees@1');
+
+  const moved = reviseContract(db, revised.ref, { dropEdges: [{ child: refs.safe, parent: refs.greenStreets }],
+    addIntents: [{ ref: refs.safe, parent: refs.shade }], filedBy: 'planners', source: 'test' });
+  const tree = report(db, moved.ref).tree;
+  assert.deepEqual(tree[0].children.map(n => n.ref), [refs.shade], 'the dropped refinement is gone');
+  assert.deepEqual(find(tree, refs.shade).children.map(n => n.ref), [refs.safe], 'an existing intent moves under a new parent');
 });
 
 test('the store rejects references of the wrong kind and rolls the whole write back', () => {

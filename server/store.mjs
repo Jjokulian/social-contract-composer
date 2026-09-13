@@ -179,7 +179,8 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
 //   replace:    { oldRef: newRef }   — swaps any intent, member, parameter or nesting reference
 //   add / drop: [ref]                — members to add, or (by their current reference) to drop
 //   addIntents: [{ ref, combine?, parent? }]
-export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], addBreaches = [], addEnforcement = [],
+//   dropEdges:  [{ child, parent }]                                     — refinements to remove, by current references
+export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], dropEdges = [], addBreaches = [], addEnforcement = [],
                                          filedBy, source, title, status } = {}) {
   const crid = resolveContract(db, id);
   const current = db.prepare(`SELECT c.contract_id AS id, c.title, c.status, k.scale FROM contract_rev c
@@ -187,8 +188,9 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
   const swap = ref => replace[ref] ?? ref;
   const parents = new Map();
   for (const r of db.prepare('SELECT child_rid, parent_rid FROM contract_refines WHERE crid = ?').all(crid)) {
-    const child = refOf(db, r.child_rid);
-    parents.set(child, [...(parents.get(child) ?? []), swap(refOf(db, r.parent_rid))]);
+    const child = refOf(db, r.child_rid), parent = refOf(db, r.parent_rid);
+    if (dropEdges.some(e => e.child === child && e.parent === parent)) continue;
+    parents.set(child, [...(parents.get(child) ?? []), swap(parent)]);
   }
   const intents = db.prepare('SELECT intent_rid, combine FROM contract_intent WHERE crid = ? ORDER BY position').all(crid)
     .map(i => { const ref = refOf(db, i.intent_rid); return { ref: swap(ref), combine: i.combine, parent: parents.get(ref) ?? [] }; });
@@ -205,7 +207,7 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
     .map(b => ({ clause: swap(refOf(db, b.clause_rid)), consequence: swap(refOf(db, b.consequence_rid)) }));
   return addContract(db, {
     id: current.id, scale: current.scale, title: title ?? current.title, status: status ?? current.status, filedBy, source,
-    intents: [...intents, ...addIntents], members: [...members, ...add], parameters, includes,
+    intents: mergeIntents(intents, addIntents), members: [...members, ...add], parameters, includes,
     breaches: [...breaches, ...addBreaches],
     enforcement: [
       ...db.prepare('SELECT clause_rid, role_id FROM contract_enforcement WHERE crid = ?').all(crid)
@@ -213,6 +215,18 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
       ...addEnforcement,
     ],
   });
+}
+
+// An intent already in the contract keeps its place and gains the added parents; a new intent is appended.
+function mergeIntents(intents, additions) {
+  const merged = intents.map(i => ({ ...i, parent: [i.parent ?? []].flat() }));
+  for (const it of additions) {
+    const extra = [it.parent ?? []].flat();
+    const existing = merged.find(i => i.ref === it.ref);
+    if (existing) existing.parent = [...new Set([...existing.parent, ...extra])];
+    else merged.push({ ref: it.ref, combine: it.combine ?? 'all', parent: extra });
+  }
+  return merged;
 }
 
 // ─── Reading ─────────────────────────────────────────────────────────────────
