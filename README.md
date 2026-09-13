@@ -72,3 +72,4 @@ docs/                    design
 | Contract | Status | Top intents |
 |---|---|---|
 | pro-pregnancy | draft | To protect mothers · To protect babies · To hallow new human life · To make pregnancy a delight |
+| socioship | draft | Persons belong to a society by signing its milli together, and hold that socioship on the terms they define |
