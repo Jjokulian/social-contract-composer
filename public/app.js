@@ -21,7 +21,7 @@ const KIND = {
 // ─── Server ──────────────────────────────────────────────────────────────────
 
 async function getJSON(path) {
-  const res = await fetch(path);
+  const res = await fetch(path, { cache: 'no-cache' });   // always revalidate: a new deploy shows at once, an unchanged one costs a 304
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error ?? `${res.status} ${path}`);
   return body;
