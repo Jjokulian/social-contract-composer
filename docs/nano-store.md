@@ -1,165 +1,85 @@
 # Nano store — design
 
-*Status: agreed direction, revision 2. It still needs a go-ahead before the build starts. Once built, it replaces `micro-social-contracts/README.md` as the format spec.*
+*Status: implemented, except the GitHub Issues contribution flow and the static build.*
 
 ## The idea
 
-Agreements are built from **nanos**: small shards, each stored once and reused by any number of micro-contracts and Social Contracts. At the top of every contract sit **intents** that people can grasp directly ("to protect mothers"). Below them sit **clauses**, the actual agreements. What joins them are **claims**: "in this context, this clause supports (or hinders) that intent, for this reason, and here is how you would check."
+Agreements are built from **nanos**: small parts, each stored once and reused by any number of micro-contracts and Social Contracts. At the top of every contract sit **intents** that people can grasp directly ("To protect mothers"). Below them sit **clauses**, the actual agreements. What joins them are **claims**: "in this context, this clause supports (or hinders) that intent, for this reason, and here is how you would check."
 
-A claim is never true or false on its own. It is true or false **in a context**: the other clauses around it, the parameter values adopters chose, and assumptions about the society that adopts it. The context is written into the claim, which lets the composer work out *where two claims part ways* when they use the same nanos and reach different conclusions. That difference becomes the agenda for investigation or debate. At minimum it gives a visible view of the disagreement.
+A claim is never true or false on its own. It is true or false **in a context**: the other clauses around it, the parameter values adopters chose, and assumptions about the society that adopts it. The context is written into the claim, so the composer can work out *where two claims part ways* when they use the same nanos and reach different conclusions. That difference is the agenda for investigation or debate, and at the very least a visible view of the disagreement.
 
-The composer never solves for anything. It takes a given selection and computes what it claims to satisfy, where claims disagree and why, what is uncovered, and what conflicts. Every check is a single pass or a pairwise comparison over the graph. No satisfiability search is needed anywhere.
+The composer never solves for anything. It takes a given composition and computes what it claims to satisfy, where its claims disagree and why, what is uncovered, and what conflicts. Every check is a single pass or a pairwise comparison, so there is no satisfiability search anywhere.
 
 ## Levels
 
 ```
-Social Contract          a composition of micro-contracts (nested or added side by side)
-└─ micro-social-contract a manifest: an intent tree + the nanos that serve it
-   └─ nano               one intent, clause, definition, parameter, assumption, claim, …
+Social Contract          a composition of contracts (nested under an intent, or added alongside)
+└─ micro-social-contract an intent tree + the nanos that serve it
+   └─ nano               an intent, clause, definition, parameter, measure, assumption, claim or evaluation
 ```
 
-## Nano kinds
+## Architecture
 
-| Kind | What it is | Example |
-|---|---|---|
-| `intent` | A purpose people can grasp directly | *To make pregnancy a delight* |
-| `clause` | An agreement: who commits to what (shall / shall not / may) | *Society provides prenatal care free at the point of use* |
-| `definition` | A term and its meaning | *Abortion: ending a pregnancy by extraction once the child can live on its own, or removal after it has died* |
-| `parameter` | A term that adopters set, with a domain | *Extraction threshold: 22–37 completed weeks* |
-| `measure` | Something observable in a society | *Approved adoptive families per relinquished newborn* |
-| `assumption` | A belief about the society, stated as a condition on a measure where possible | *Approved adoptive families per relinquished newborn ≥ 1* |
-| `claim` | A conclusion about how one nano relates to another, **plus the context it depends on** | see below |
-| `evaluation` | An observed value of a measure, in a named society, with a source | *Society X, 2031: 0.8 families per newborn* |
-| `resource` | A service or facility with a cost model (feeds the cost explorer) | *NICU bed: capital, daily cost* |
+A normal server over one normalized database. Every fact is recorded once, and every reference is a foreign key.
+
+| Part | Role |
+|---|---|
+| `store/schema.sql` | Tables, integrity triggers, composition views |
+| `store/composer.sqlite` | The store. It's committed, and `tools/sqlite-dump.mjs` makes its git diffs readable |
+| `server/store.mjs` | Writes nanos and contracts in single transactions; reads them with references rendered as `id@rev` |
+| `server/checks.mjs` | The composition report |
+| `server/index.mjs` | JSON API plus the static client |
+
+The static build for GitHub Pages is a later, additive step, done with the `publish-to-static-host` skill. The client asks `/api/config` whether a server exists and degrades when it doesn't. Reads over known inputs bake into files; writes stay server-only.
+
+### What the schema enforces
+
+- **Append-only.** Nano and contract revisions can't be updated or deleted. A change is a new revision, numbered consecutively, and references pin `id@rev`.
+- **Kinds.** Body rows must match their revision's kind. `supports` and `hinders` go clause → intent; `conflicts` go between clauses or definitions. A claim's conditions reference parameters, its assumptions reference assumptions, and so on.
+- **Domains.** A contract's parameter values must fall inside the parameter's range.
+- **No cycles.** A contract can include only earlier contract revisions.
+- **Normalization.** Authors, roles, terms, units and societies are vocabularies. Nesting lives in the contract (`contract_intent`, `contract_refines`), never in the nanos, so an intent can sit under different parents in different contracts. Roots are derived, not stored.
 
 ## Claims carry their context
 
-```yaml
-id: claim:guardianship-transfer--protect-babies--a
-rev: 1
-from: clause:guardianship-transfer@1
-relation: supports              # supports | hinders | conflicts
-to: intent:protect-babies@1
-strength: contributes           # contributes | sufficient
-context:
-  given:                        # nanos that must be in the composition for the claim to apply
-    - clause:guardianship-transfer@1
-    - clause:placement-within-window@1
-  when:                         # conditions on parameter values chosen by adopters
-    - parameter:placement-window-months@1 <= 12
-  assuming:                     # beliefs about the society; checkable against evaluations
-    - assumption:adoptive-families-exceed-relinquished-newborns@1
-rationale: Newborns are placed with permanent families quickly, so none grow up in institutional care.
-filed-by: pro-pregnancy authors
-```
+| Field | Meaning |
+|---|---|
+| `from`, `relation`, `to`, `strength` | e.g. *guardianship-transfer supports protect-babies (contributes)* |
+| `given` | Nanos that must be in the composition for the claim to apply |
+| `when` | Conditions on parameter values, e.g. `placement-window-months <= 12` |
+| `assuming` | Beliefs about the society, as conditions on measures where possible |
+| `measuredBy` | How a society would check it |
+| `rationale`, `filedBy`, `source` | Why, who, and where it came from |
 
-A claim **applies** to a composition in a given society when three things hold:
-- all of its `given` nanos are in the composition,
-- all of its `when` conditions hold at the chosen parameter values,
-- and none of its `assuming` conditions are contradicted by that society's evaluations. If a society has no evaluation yet, the claim applies and is marked *unverified*.
+A claim **applies** when all of its `given` nanos are present, its `when` conditions hold at the chosen values, and no `assuming` condition is contradicted by the society's evaluations. Its status is one of *applies*, *unverified* (applies, but nothing has tested its assumptions), *inactive* (a condition doesn't hold), or *contradicted*.
 
-### Computing a disagreement
+### Disagreements
 
-Two claims **disagree** when they share `from` and `to` but differ in `relation` or `strength`. For each disagreeing pair, the composer computes a **context diff** and classifies it:
+Two claims disagree when they share `from` and `to` but differ in `relation` or `strength`. The composer compares their contexts and classifies the pair:
 
 | Class | Meaning | What settles it |
 |---|---|---|
-| **Direct** | Same context, opposite conclusions | Debate about the reasoning and evidence itself |
-| **Divergent context** | One claim considers nanos the other ignores | Whether those extra nanos belong in the picture |
-| **Crux on assumption** | The two claims assume disjoint values of the same measure | An evaluation of that measure, *per society* |
-| **Conditional** | The two claims hold at disjoint parameter values | Nothing to settle: both hold, and the adopters' parameter choice decides which applies |
+| **Conditional** | They hold at disjoint parameter values | Nothing to settle: the adopters' choice decides |
+| **Crux on assumption** | They assume disjoint values of one measure | An evaluation of that measure, per society |
+| **Direct** | Identical contexts, opposite conclusions | Debate about the reasoning and evidence |
+| **Divergent context** | One considers nanos the other ignores | Whether those nanos belong in the picture |
 
-Conditions are simple comparisons of one measure or parameter against a constant. So "are these disjoint?" is interval arithmetic, not a solver.
+Conditions are simple comparisons against a constant, so "disjoint?" is interval arithmetic.
 
-**Worked example.** Someone files an issue with a second claim:
+## The composition report
 
-```yaml
-id: claim:guardianship-transfer--protect-babies--b
-from: clause:guardianship-transfer@1
-relation: hinders
-to: intent:protect-babies@1
-context:
-  given:    [clause:guardianship-transfer@1]
-  assuming: [assumption:relinquished-newborns-exceed-adoptive-families@1]
-rationale: Newborns who aren't placed grow up in long-term state care.
-```
+`GET /api/contracts/:ref/report?society=<id>&p.<parameter>=<value>`
 
-The composer's report:
+- **Tree** — every intent, with its *coverage* rolled up through *all of* / *any of*: *claimed* (a sufficient claim, or children that are covered), *thin* (only contributing claims) or *gap*. It is also flagged *in tension* (the contract's own claims hinder it), *challenged* (claims the contract doesn't endorse hinder it) and *disputed* (claims about it disagree).
+- **Conflicts** — conflicts claims whose two ends are both in the composition.
+- **Definition clashes** — two definitions of one term.
+- **Gaps and thin** — the intents at those coverage levels.
+- **Orphans** — clauses that serve no intent, either directly or as a precondition.
+- **Tensions** — clauses that support one intent and hinder another.
+- **Disagreements** — with their context diff and class.
 
-```
-DISAGREEMENT  guardianship-transfer → protect-babies   (supports  vs  hinders)
-  shared context   clause:guardianship-transfer@1
-  only in A        clause:placement-within-window@1
-                   when placement-window-months <= 12
-                   assuming adoptive-families-per-relinquished-newborn >= 1
-  only in B        assuming adoptive-families-per-relinquished-newborn <  1
-  class            CRUX ON ASSUMPTION: measure adoptive-families-per-relinquished-newborn
-  settled by       an evaluation of that measure in the adopting society
-```
+## Contributions through GitHub Issues (planned)
 
-So both claims can be right in different societies, and the composer names the single observation that decides between them.
-
-## The store: one database, built from an append-only log
-
-Revisions are immutable, so the canonical record only ever grows. It lives as an append-only log in git, and every build compiles it into one SQLite database.
-
-```
-store/
-  log/<kind>.jsonl              # one line per nano revision, append-only (git diffs are pure additions)
-  schema.sql                    # tables + the check views
-micro-social-contracts/<id>/manifest.json   # the intent tree: nesting is contract-specific, so it lives here
-social-contracts/<id>/manifest.json
-tools/build.mjs                 # log + manifests + issue snapshot → site/store.sqlite + check report
-site/                           # the GitHub Pages app; loads store.sqlite with sql.js (SQLite in WASM)
-.github/ISSUE_TEMPLATE/         # forms for proposing a nano, a claim or an evaluation
-.github/workflows/              # rebuild + deploy on push and on issue changes
-```
-
-Why this shape:
-- **Computable.** Nanos, claims, contexts and manifests are relational tables. Gaps, orphans, conflicts, clashes and disagreements are **SQL views**, and the same database file answers the same queries in CI, in node and in the browser.
-- **Efficient.** The site ships one indexed file, and sql.js queries it in memory. If the store grows large, sql.js-httpvfs reads just the pages a query needs with HTTP range requests, which works on GitHub Pages.
-- **Reviewable.** A change to the store is appended lines in a PR, never an opaque binary diff. The `.sqlite` file is a build output and is never committed.
-
-Core tables, sketched:
-
-```sql
-nano(id, rev, kind, body_json, filed_by, source, status, PRIMARY KEY (id, rev))
-claim(id, rev, from_ref, relation, to_ref, strength)
-claim_given(claim_ref, nano_ref)
-claim_when(claim_ref, parameter_ref, op, value)
-claim_assuming(claim_ref, assumption_ref)
-assumption(id, rev, measure_ref, op, value)          -- op/value NULL for non-quantified beliefs
-evaluation(id, rev, measure_ref, society, value, observed_on, source_url)
-manifest_node(contract, contract_rev, parent_ref, child_ref, combine)   -- 'all' | 'any'
-manifest_member(contract, contract_rev, nano_ref)
-issue(number, kind, title, state, labels_json, reactions_up, reactions_down, body_json)
--- views: v_applicable_claims, v_gaps, v_orphans, v_conflicts, v_definition_clashes,
---        v_disagreements (with context diff and class), v_intent_rollup
-```
-
-## Contributions: GitHub Issues
-
-The Pages site shows two layers: the **accepted** store, plus everyone's **proposals**.
-
-1. **Propose.** Anyone opens an issue from a form: *Propose a nano*, *File a claim* or *Report an evaluation*. The forms produce structured bodies that the build parses into the `issue` table.
-2. **Show.** Proposals appear on the site right away, marked as proposals, next to accepted content. Proposed claims take part in disagreement reports too, so a new counter-claim is visible the moment it's filed. The build snapshots issues into the database, and the site can also fetch live issue state from the GitHub API for freshness.
-3. **Settle, the GitHub way.** Maintainers label an issue `accepted` or `declined`, and 👍/👎 reactions are recorded as a signal. A workflow turns an `accepted` issue into a line in `store/log/`, commits it, and closes the issue with a link to the new nano. Discussion stays on the issue, which is the claim's permanent debate record.
-
-## What the composer checks
-
-For a selected composition, with its chosen parameter values and optionally a society:
-
-1. **Resolve.** Every pinned `id@rev` exists.
-2. **Conflicts.** Any applicable `conflicts` claim whose two ends are both in the composition.
-3. **Definition clashes.** Two definitions of the same term in one composition.
-4. **Gaps.** Intents that no applicable claim supports, rolled up through *all of* / *any of*.
-5. **Orphans.** Clauses that serve no intent in the composition.
-6. **Tensions.** A clause that supports one intent and hinders another.
-7. **Disagreements.** Pairs of claims with the same `from` and `to` and different conclusions, with their context diff and class (above).
-8. **Rollup.** Each intent is labeled *claimed*, *thin*, *gap*, *in tension* or *disputed*, together with its evidence status (*unverified*, *supported by evaluation*, *contradicted by evaluation*).
-
-**Nesting** places micro-contract root intents under a Social Contract's own intents. **Adding** unions nanos: a nano with the same `id@rev` merges, and different definitions of one term surface as clashes.
-
-## Migration of the current draft
-
-`micro-social-contracts/pro-pregnancy/contract.md` is committed first, so it lives in git history. It is then split into nanos and a manifest, and deleted. The placeholder term "pregnant person" gives way to the contract's own words ("mothers", "babies") unless the adopters choose otherwise.
+1. **Propose.** Anyone opens an issue from a form: *propose a nano*, *file a claim* or *report an evaluation*.
+2. **Show.** The client shows open proposals next to the store, marked as proposals. Proposed claims take part in disagreement reports.
+3. **Settle, the GitHub way.** Maintainers label an issue `accepted` or `declined`, and reactions are shown as a signal. Accepted issues are written into the store with `source = issue:<n>`, and the issue thread remains the claim's debate record.

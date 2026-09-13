@@ -1,28 +1,50 @@
 # Social Contract Composer
 
-A catalogue of **micro-social-contracts**: small, self-contained agreements that each cover one area of life. Anyone can pick a set of them and combine the set into a full Social Contract for a society they want to write down.
+A catalogue of **micro-social-contracts**: small agreements that each cover one area of life. Anyone can pick a set of them and combine the set into a full Social Contract for a society they want to write down.
 
-Each micro-contract says:
+Contracts are built from **nanos**, small reusable parts stored once in one database:
 
-- what society **commits to provide** (services, facilities, protections),
-- what each citizen **contributes** (money, duties, restraint),
-- which **terms adopters set** (thresholds, durations, rates),
-- how it **connects to other micro-contracts**: what it needs from them, what it gives them, which ones it conflicts with, and what it hands off to them.
+- **Intents** — purposes anyone can grasp directly ("To protect mothers")
+- **Clauses** — the actual agreements
+- **Definitions**, **parameters**, **measures** and **assumptions**
+- **Claims** — how a clause is believed to serve an intent, and the context that belief depends on
 
-The catalogue doesn't judge which contracts are right. A contract states the values of the people who want it. The composer's job is to make those values precise, show what they cost, and show how they fit together.
+The composer doesn't judge which contracts are right. It shows what a composition *claims* to satisfy, where its claims pull against each other, where two claims disagree and exactly why, and what is left uncovered. Claims are put up for evaluation: a society that adopts a contract tests them.
+
+The design is in [docs/nano-store.md](docs/nano-store.md).
+
+## Run it
+
+```sh
+npm install
+npm start          # http://127.0.0.1:8800 — set PORT to change it
+npm test
+```
+
+The API is read-only by default. `COMPOSER_ALLOW_WRITES=1 npm start` enables `POST /api/nanos` and `POST /api/contracts`.
+
+The store is `store/composer.sqlite`. To make `git diff` show changes to it as text, run this once per clone:
+
+```sh
+git config diff.sqlite.textconv "node tools/sqlite-dump.mjs"
+```
 
 ## Layout
 
 ```
-micro-social-contracts/
-  README.md              ← the micro-contract format (read this first)
-  pro-pregnancy/
-    contract.md          ← the contract text, with its interface in front matter
-    explorer/index.html  ← services, facilities and cost-per-citizen explorer
+store/schema.sql         tables, integrity triggers and composition views
+store/composer.sqlite    the store: every nano, claim and contract
+server/store.mjs         read and write nanos and contracts
+server/checks.mjs        the composition report
+server/index.mjs         JSON API and static client
+public/                  the composer client
+micro-social-contracts/  contract-specific material that isn't store data (views, explorers)
+test/                    a neutral toy composition that exercises every check
+docs/                    design
 ```
 
 ## Catalogue
 
-| Contract | Status | Aim |
+| Contract | Status | Top intents |
 |---|---|---|
-| [pro-pregnancy](micro-social-contracts/pro-pregnancy/contract.md) | draft 0.1 | Make pregnancy comfortable and free of chronic negative consequences, and define abortion as ending a pregnancy, never killing the human life in the womb. |
+| pro-pregnancy | draft | To protect mothers · To protect babies · To hallow new human life · To make pregnancy a delight |
