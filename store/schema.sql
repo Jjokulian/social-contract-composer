@@ -93,7 +93,10 @@ CREATE TABLE IF NOT EXISTS clause_body (
   rid      INTEGER PRIMARY KEY REFERENCES revision(rid),
   role_id  TEXT NOT NULL REFERENCES role(id),
   modality TEXT NOT NULL CHECK (modality IN ('shall', 'shall not', 'may')),
-  text     TEXT NOT NULL
+  text     TEXT NOT NULL,
+  -- What the clause binds its role to: work to carry out, a rule to abide by, or a liberty.
+  -- NULL: follows the modality (shall → work, shall not → abide, may → liberty). Stated only where that misleads.
+  binding  TEXT CHECK (binding IN ('work', 'abide', 'liberty'))
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS definition_body (
@@ -263,6 +266,15 @@ CREATE TABLE IF NOT EXISTS contract_breach (
   PRIMARY KEY (crid, clause_rid, consequence_rid)
 ) STRICT;
 
+-- Who detects breaches of a clause and applies its consequences, as the composing signatories agree.
+-- Detection is work too, so it is assigned to a role. For each clause, the outermost contract that assigns any decides.
+CREATE TABLE IF NOT EXISTS contract_enforcement (
+  crid       INTEGER NOT NULL REFERENCES contract_rev(crid),
+  clause_rid INTEGER NOT NULL REFERENCES revision(rid),
+  role_id    TEXT    NOT NULL REFERENCES role(id),
+  PRIMARY KEY (crid, clause_rid, role_id)
+) STRICT;
+
 -- ─── Integrity triggers ──────────────────────────────────────────────────────
 
 -- Revisions are numbered 1, 2, 3, … per nano and per contract.
@@ -331,6 +343,10 @@ WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.clause_rid) IS NOT 'clause'
   OR (SELECT kind FROM revision_kind WHERE rid = NEW.consequence_rid) IS NOT 'consequence'
 BEGIN SELECT RAISE(ABORT, 'a breach attaches a consequence to a clause'); END;
 
+CREATE TRIGGER IF NOT EXISTS contract_enforcement_kind BEFORE INSERT ON contract_enforcement
+WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.clause_rid) IS NOT 'clause'
+BEGIN SELECT RAISE(ABORT, 'enforcement is assigned for a clause'); END;
+
 CREATE TRIGGER IF NOT EXISTS claim_when_kind BEFORE INSERT ON claim_when
 WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.parameter_rid) IS NOT 'parameter'
 BEGIN SELECT RAISE(ABORT, 'claim_when must reference a parameter'); END;
@@ -371,6 +387,7 @@ CREATE TRIGGER IF NOT EXISTS evaluation_body_immutable    BEFORE UPDATE ON evalu
 CREATE TRIGGER IF NOT EXISTS influence_body_immutable     BEFORE UPDATE ON influence_body     BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS consequence_body_immutable   BEFORE UPDATE ON consequence_body   BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_breach_immutable    BEFORE UPDATE ON contract_breach    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS contract_enforcement_immutable BEFORE UPDATE ON contract_enforcement BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_rev_immutable_u     BEFORE UPDATE ON contract_rev       BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_rev_immutable_d     BEFORE DELETE ON contract_rev       BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_intent_immutable    BEFORE UPDATE ON contract_intent    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;

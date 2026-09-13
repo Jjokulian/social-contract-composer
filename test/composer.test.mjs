@@ -101,6 +101,20 @@ test('consequences of breach are set by the composition, and the outermost contr
     members: [refs.plant], breaches: [{ clause: refs.plant, consequence: refs.shade }] }), /not a consequence/);
 });
 
+test('clauses bind to work, a rule or a liberty, and consequences need someone assigned to detect breaches', () => {
+  const { db, refs, contracts } = buildFixture();
+  const r = report(db, contracts.town);
+  assert.equal(r.nanos[refs.plant].binding, 'work', 'shall follows the modality: work');
+  assert.equal(r.nanos[refs.plant].bindingStated, false);
+  assert.equal(r.nanos[refs.cables].binding, 'abide', 'a stated binding overrides the modality');
+  assert.equal(r.nanos[refs.cables].bindingStated, true);
+  assert.deepEqual(r.enforcement, [{ clause: refs.plant, by: ['council'], setBy: contracts.town }]);
+  assert.equal(r.roles.council, 'The town council');
+  assert.deepEqual(r.checks.unenforced, [refs.barriers], 'the barriers warning has no one to detect breaches');
+  assert.throws(() => addContract(db, { id: 'bad-enforcer', scale: 'micro', title: 'x', filedBy: 'planners', source: 'test',
+    members: [refs.plant], enforcement: [{ clause: refs.shade, by: 'council' }] }), /not a clause/);
+});
+
 test('a micro-contract rolls its intents up and shows its own tension', () => {
   const { db, refs, contracts } = buildFixture();
   const r = report(db, contracts.streetTrees);

@@ -104,6 +104,14 @@ const issueLink = source => {
   return m ? `<a href="${REPO}/issues/${m[1]}">issue #${m[1]}</a>` : '';
 };
 
+// What a clause binds its role to. Detecting breaches of a rule is work too, carried by whoever the composition assigns.
+const BINDING = {
+  work: ['work', 'Work to carry out: someone has to do this.'],
+  abide: ['abide', 'A rule to abide by: breaches have to be detected and met with consequences.'],
+  liberty: ['liberty', 'A liberty: permitted, and no one is bound to act.'],
+};
+const bindingChip = b => BINDING[b] ? `<span class="binding ${b}" title="${BINDING[b][1]}">${BINDING[b][0]}</span>` : '';
+
 const DIRECTION = { 'raises': 'raises', 'lowers': 'lowers', 'bears-on': 'bears on', 'stands-in-for': 'stands in for' };
 
 function renderReport(r) {
@@ -120,7 +128,7 @@ function renderReport(r) {
   const clause = ref => {
     const c = nano(ref);
     if (!c.text) return esc(humanize(ref));
-    return `<span class="modality" title="Binds: ${esc(c.roleLabel)}">${esc(c.modality)}</span> ${esc(c.text)}`;
+    return `<span class="modality" title="Binds: ${esc(c.roleLabel)}">${esc(c.modality)}</span> ${bindingChip(c.binding)} ${esc(c.text)}`;
   };
 
   const context = c => {
@@ -237,6 +245,14 @@ function renderReport(r) {
     </header>`,
     section('intents', 'Intents', 'What the contract claims to satisfy. Open an intent to see the claims behind it, what each depends on, and whether it applies at the current parameter values.',
       `<ul class="tree">${r.tree.map(nodeHtml).join('')}</ul>`),
+    section('asks', 'What it asks of whom', 'Before you say “I do”: the work it binds people to carry out, the rules it binds them to abide by, and the liberties it grants. A rule is only as real as the detection of its breaches, and that detection is work that someone among the signatories has to take on.',
+      [['work', 'Work to carry out'], ['abide', 'Rules to abide by'], ['liberty', 'Liberties']].map(([kind, heading]) => {
+        const clauses = r.clauses.map(nano).filter(c => c.binding === kind);
+        if (!clauses.length) return '';
+        const roles = [...new Set(clauses.map(c => c.roleLabel))];
+        return `<div class="finding"><h3>${heading}</h3><dl class="ctx">${roles.map(role => `<dt>${esc(role)}</dt><dd>${clauses.filter(c => c.roleLabel === role)
+          .map(c => `${esc(c.text)}${kind === 'abide' ? (r.enforcement.some(e => e.clause === c.ref) ? '' : ' <span class="fails">· no one assigned to detect breaches</span>') : ''}`).join('<br>')}</dd>`).join('')}</dl></div>`;
+      }).join('') || empty('This composition has no clauses yet.')),
     section('disagreements', 'Disagreements', 'Claims about the same clause and intent that reach different conclusions, with the context that separates them.',
       checks.disagreements.length ? checks.disagreements.map(disagreementHtml).join('')
         : empty('None yet. When anyone files a counter-claim, it appears here with the difference in context that explains it.')),
@@ -263,6 +279,8 @@ function renderReport(r) {
           <dl class="ctx">
             <dt>consequences</dt><dd>${b.consequences.map(label).join('; ')}</dd>
             <dt>set by</dt><dd><code>${esc(b.setBy)}</code> · reversible by the parties</dd>
+            <dt>detected by</dt><dd>${(r.enforcement.find(e => e.clause === b.clause)?.by ?? []).map(id => esc(r.roles[id] ?? id)).join(', ')
+              || '<span class="fails">no one assigned to detect breaches</span>'}</dd>
           </dl>
         </div>`).join('') || empty('This composition attaches no consequences of breach yet. The composing parties decide which breach costs what.')),
     section('structure', 'Structure', null, `
@@ -333,6 +351,7 @@ function renderPanel(r) {
     ['disagreements', 'Disagreements', c.disagreements.length],
     ['determinants', 'Influences recorded', r.influences.length],
     ['breaches', 'Clauses with consequences', r.breaches.length],
+    ['breaches', 'Consequences no one detects', c.unenforced.length],
     ['structure', 'Orphan clauses', c.orphans.length],
     ['structure', 'Conflicts', c.conflicts.length],
     ['structure', 'Definition clashes', c.definitionClashes.length],

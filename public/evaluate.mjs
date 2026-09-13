@@ -157,12 +157,17 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
     tensions: snap.clauses.map(cl => ({ clause: cl, supports: targets(cl, 'supports'), hinders: targets(cl, 'hinders') }))
       .filter(t => t.hinders.length),
     disagreements,
+    // A consequence is only real if someone detects the breach: clauses with consequences but no one assigned to that work.
+    unenforced: snap.breaches.filter(b => !snap.enforcement.some(e => e.clause === b.clause)).map(b => b.clause),
   };
 
   return {
     contract: snap.contract, society, parameters, tree, checks,
     influences: snap.influences,
     breaches: snap.breaches,
+    enforcement: snap.enforcement,
+    roles: snap.roles,
+    clauses: snap.clauses,
     claims: Object.fromEntries(claims.map(c => [c.ref, c])),
     nanos,
   };

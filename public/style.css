@@ -131,6 +131,14 @@ details.claims > summary:hover { text-decoration: underline; }
 .status.inactive, .status.contradicted { text-decoration: line-through; color: var(--ink-3); }
 .clause-text { font: 16px/1.5 var(--serif); max-width: 65ch; }
 .modality { font-variant-caps: all-small-caps; letter-spacing: 0.06em; font-weight: 600; }
+.binding {   /* what a clause binds to: work, abide or liberty; the label carries it, colour only echoes it */
+  display: inline-block; font: 600 10px/1.6 var(--sans); text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 0 6px; border: 1px solid currentColor; border-radius: 3px; vertical-align: 0.15em; white-space: nowrap;
+}
+.binding.work { color: var(--accent); }
+.binding.abide { color: var(--gap); }
+.binding.liberty { color: var(--claimed); }
+.enforcer { flex: 1 1 16rem; }
 .rationale { font: italic 15px/1.5 var(--serif); color: var(--ink-2); max-width: 65ch; }
 .ctx { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 2px 0 0; font-size: 13px; }
 .ctx dt { color: var(--ink-3); }

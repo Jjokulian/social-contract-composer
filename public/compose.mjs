@@ -91,6 +91,16 @@ export function compose(cat, spec) {
   }
   const breaches = byRid(breachByClause.keys()).map(clause => breachByClause.get(clause));
 
+  // Who detects breaches and applies consequences: set by the composing signatories; the outermost contract decides.
+  const enforcedBy = new Map();
+  for (const { c } of order) {
+    const assigned = new Map();
+    for (const e of c.enforcement ?? []) if (has(e.clause)) assigned.set(e.clause, [...(assigned.get(e.clause) ?? []), e.by]);
+    for (const [clause, by] of assigned) if (!enforcedBy.has(clause)) enforcedBy.set(clause, { clause, by, setBy: c.ref ?? '(draft)' });
+  }
+  const enforcement = byRid(enforcedBy.keys()).map(clause => enforcedBy.get(clause));
+  const roles = Object.fromEntries((cat.roles ?? []).map(r => [r.id, r.label]));
+
   const described = new Set([...members, ...claims.map(c => c.ref), ...claims.flatMap(c => c.measuredBy), ...influences,
                              ...breaches.flatMap(b => b.consequences)]);
   return {
@@ -99,6 +109,7 @@ export function compose(cat, spec) {
       includes: (spec.includes ?? []).map(i => ({ ref: i.ref, mode: i.mode })),
     },
     parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, influences, breaches,
+    enforcement, roles,
     nanos: Object.fromEntries(byRid(described).map(ref => [ref, nanoOf(ref)])),
   };
 }

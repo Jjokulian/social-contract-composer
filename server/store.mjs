@@ -14,9 +14,18 @@ export class StoreError extends Error {
 export function openStore(path = DEFAULT_PATH, { readonly = false } = {}) {
   const db = new Database(path, { readonly, fileMustExist: readonly });
   db.pragma('foreign_keys = ON');
-  if (!readonly) db.exec(SCHEMA);
+  if (!readonly) { db.exec(SCHEMA); migrate(db); }
   return db;
 }
+
+// Columns added after a store was first created. Adding a column changes no existing revision's content.
+function migrate(db) {
+  const columns = db.prepare('PRAGMA table_info(clause_body)').all().map(c => c.name);
+  if (!columns.includes('binding')) db.exec("ALTER TABLE clause_body ADD COLUMN binding TEXT CHECK (binding IN ('work', 'abide', 'liberty'))");
+}
+
+// What a clause binds its role to, when the clause doesn't state it: follows the modality.
+const BINDING_OF_MODALITY = { 'shall': 'work', 'shall not': 'abide', 'may': 'liberty' };
 
 // ─── Vocabularies ────────────────────────────────────────────────────────────
 
@@ -67,7 +76,8 @@ const WRITE = {
   intent: (db, rid, b) =>
     db.prepare('INSERT INTO intent_body (rid, statement) VALUES (?, ?)').run(rid, b.statement),
   clause: (db, rid, b) =>
-    db.prepare('INSERT INTO clause_body (rid, role_id, modality, text) VALUES (?, ?, ?, ?)').run(rid, b.role, b.modality, b.text),
+    db.prepare('INSERT INTO clause_body (rid, role_id, modality, text, binding) VALUES (?, ?, ?, ?, ?)')
+      .run(rid, b.role, b.modality, b.text, b.binding ?? null),
   definition: (db, rid, b) =>
     db.prepare('INSERT INTO definition_body (rid, term_id, meaning) VALUES (?, ?, ?)').run(rid, b.term, b.meaning),
   parameter: (db, rid, b) =>
@@ -125,7 +135,7 @@ export function addNano(db, { id, kind, filedBy, source, ...body }) {
 //   parameters: { ref: value }
 //   includes:   [{ contract: ref, mode: 'nest'|'add', under?: intent ref }]
 export function addContract(db, { id, scale, title, status = 'draft', filedBy, source,
-                                  intents = [], members = [], parameters = {}, includes = [], breaches = [] }) {
+                                  intents = [], members = [], parameters = {}, includes = [], breaches = [], enforcement = [] }) {
   return db.transaction(() => {
     const existing = db.prepare('SELECT scale FROM contract WHERE id = ?').pluck().get(id);
     if (existing && existing !== scale) throw new StoreError(`${id} is already a ${existing} contract`);
@@ -159,6 +169,8 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
     for (const b of breaches)   // consequences of breach, set by this composition
       db.prepare('INSERT INTO contract_breach (crid, clause_rid, consequence_rid) VALUES (?, ?, ?)')
         .run(crid, resolve(db, b.clause, 'clause'), resolve(db, b.consequence, 'consequence'));
+    for (const e of enforcement)   // who detects breaches and applies consequences, set by this composition
+      db.prepare('INSERT INTO contract_enforcement (crid, clause_rid, role_id) VALUES (?, ?, ?)').run(crid, resolve(db, e.clause, 'clause'), e.by);
     return { ref: `${id}@${rev}`, crid };
   })();
 }
@@ -167,7 +179,8 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
 //   replace:    { oldRef: newRef }   — swaps any intent, member, parameter or nesting reference
 //   add / drop: [ref]                — members to add, or (by their current reference) to drop
 //   addIntents: [{ ref, combine?, parent? }]
-export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], addBreaches = [], filedBy, source, title, status } = {}) {
+export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], addBreaches = [], addEnforcement = [],
+                                         filedBy, source, title, status } = {}) {
   const crid = resolveContract(db, id);
   const current = db.prepare(`SELECT c.contract_id AS id, c.title, c.status, k.scale FROM contract_rev c
                                JOIN contract k ON k.id = c.contract_id WHERE c.crid = ?`).get(crid);
@@ -194,6 +207,11 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
     id: current.id, scale: current.scale, title: title ?? current.title, status: status ?? current.status, filedBy, source,
     intents: [...intents, ...addIntents], members: [...members, ...add], parameters, includes,
     breaches: [...breaches, ...addBreaches],
+    enforcement: [
+      ...db.prepare('SELECT clause_rid, role_id FROM contract_enforcement WHERE crid = ?').all(crid)
+        .map(e => ({ clause: swap(refOf(db, e.clause_rid)), by: e.role_id })),
+      ...addEnforcement,
+    ],
   });
 }
 
@@ -201,8 +219,11 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
 
 const READ = {
   intent: (db, rid) => db.prepare('SELECT statement FROM intent_body WHERE rid = ?').get(rid),
-  clause: (db, rid) => db.prepare(`SELECT b.role_id AS role, r.label AS roleLabel, b.modality, b.text
-                                   FROM clause_body b JOIN role r ON r.id = b.role_id WHERE b.rid = ?`).get(rid),
+  clause: (db, rid) => {
+    const { binding, ...c } = db.prepare(`SELECT b.role_id AS role, r.label AS roleLabel, b.modality, b.text, b.binding
+                                          FROM clause_body b JOIN role r ON r.id = b.role_id WHERE b.rid = ?`).get(rid);
+    return { ...c, binding: binding ?? BINDING_OF_MODALITY[c.modality], bindingStated: binding !== null };
+  },
   definition: (db, rid) => db.prepare(`SELECT b.term_id AS term, t.label AS termLabel, b.meaning
                                        FROM definition_body b JOIN term t ON t.id = b.term_id WHERE b.rid = ?`).get(rid),
   parameter: (db, rid) => db.prepare(`SELECT b.label, b.unit_id AS unit, u.label AS unitLabel, b.min, b.max, b.meaning
@@ -265,8 +286,11 @@ export function catalogue(db) {
       .map(i => ({ ref: i.ref, mode: i.mode, under: i.under_intent_rid === null ? null : refOf(db, i.under_intent_rid) }));
     c.breaches = db.prepare('SELECT clause_rid, consequence_rid FROM contract_breach WHERE crid = ? ORDER BY clause_rid, consequence_rid').all(c.crid)
       .map(b => ({ clause: refOf(db, b.clause_rid), consequence: refOf(db, b.consequence_rid) }));
+    c.enforcement = db.prepare('SELECT clause_rid, role_id FROM contract_enforcement WHERE crid = ? ORDER BY clause_rid, role_id').all(c.crid)
+      .map(e => ({ clause: refOf(db, e.clause_rid), by: e.role_id }));
     contracts[c.ref] = c;
   }
+  const roles = db.prepare('SELECT id, label FROM role ORDER BY label').all();
   const observations = {};
   for (const { measure, society, ...o } of db.prepare(`SELECT m.nano_id AS measure, e.society_id AS society, e.value,
                                                               e.observed_on AS observedOn, e.source_url AS sourceUrl
@@ -274,7 +298,7 @@ export function catalogue(db) {
                                                        ORDER BY e.observed_on, e.rid`).all())
     (observations[measure] ??= {})[society] = o;   // ascending, so the latest wins
   const societies = db.prepare('SELECT id, label FROM society ORDER BY label').all();
-  return { nanos, contracts, observations, societies };
+  return { nanos, contracts, observations, societies, roles };
 }
 
 export function listContracts(db) {

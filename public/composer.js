@@ -33,7 +33,12 @@ const text = n => n.statement ?? n.text ?? n.meaning ?? n.label ?? n.ref;
 // ─── Drafts ──────────────────────────────────────────────────────────────────
 
 const blank = () => ({ id: 'draft', scale: 'social', title: 'My Social Contract', territory: '', status: 'draft',
-  intents: [], edges: [], members: [], parameters: {}, includes: [], breaches: [], nanos: {} });
+  intents: [], edges: [], members: [], parameters: {}, includes: [], breaches: [], enforcement: [], nanos: {} });
+
+const BINDING_TIP = { work: 'Work to carry out', abide: 'A rule to abide by; breaches must be detected', liberty: 'A liberty; no one is bound to act' };
+const bindingChip = n => n.binding ? `<span class="binding ${n.binding}" title="${BINDING_TIP[n.binding]}">${n.binding}</span>` : '';
+const roleLabel = id => cat.roles?.find(r => r.id === id)?.label ?? id;
+const roleId = label => cat.roles?.find(r => r.label.toLowerCase() === label.trim().toLowerCase() || r.id === label.trim())?.id ?? label.trim();
 
 function example() {
   const d = blank();
@@ -198,7 +203,7 @@ function renderCanvas(out) {
 
     <section class="canvas-section"><h2>Your clauses and definitions</h2>
       ${members.length ? `<ul class="rows">${members.map(m => `
-        <li class="row"><span class="modality">${esc(nano(m).modality ?? nano(m).termLabel ?? '')}</span><span class="row-text">${esc(short(text(nano(m)), 140))}</span>
+        <li class="row"><span class="modality">${esc(nano(m).modality ?? nano(m).termLabel ?? '')}</span>${bindingChip(nano(m))}<span class="row-text">${esc(short(text(nano(m)), 140))}</span>
         <button type="button" class="x" data-action="remove-member" data-ref="${esc(m)}" aria-label="Remove">×</button></li>`).join('')}</ul>`
         : '<p class="empty">None yet.</p>'}
     </section>
@@ -217,14 +222,22 @@ function renderCanvas(out) {
         </div>`).join('') : '<p class="empty">Drop a clause onto an intent to claim that it serves the intent.</p>'}
     </section>
 
+    <datalist id="roles-list">${(cat.roles ?? []).map(r => `<option value="${esc(r.label)}"></option>`).join('')}</datalist>
     <section class="canvas-section"><h2>If a clause is breached</h2>
       <p class="lede">Your composition sets the consequences, and outranks any set by the contracts it includes. The parties can reverse a consequence by agreement.</p>
       ${clauses.length ? `<ul class="rows">${clauses.map(cl => {
         const own = draft.breaches.filter(b => b.clause === cl);
         const theirs = own.length ? [] : (inherited.get(cl)?.consequences ?? []);
+        const hasConsequence = own.length || theirs.length;
+        const ownEnforcer = draft.enforcement.find(e => e.clause === cl);
+        const theirEnforcer = out?.r.enforcement.find(e => e.clause === cl && e.setBy !== '(draft)');
         return `
           <li class="row breach-row" data-drop="clause" data-ref="${esc(cl)}">
-            <span class="row-text">${esc(short(text(nano(cl)), 120))}</span>
+            ${bindingChip(nano(cl))}<span class="row-text">${esc(short(text(nano(cl)), 120))}</span>
+            ${hasConsequence ? `<input class="text-input enforcer" list="roles-list" data-action="enforcer" data-clause="${esc(cl)}"
+              value="${esc(ownEnforcer ? roleLabel(ownEnforcer.by) : '')}"
+              placeholder="${esc(theirEnforcer ? `Detected by ${theirEnforcer.by.map(roleLabel).join(', ')} (set by ${theirEnforcer.setBy})` : 'Detected and enforced by… (no one yet)')}"
+              aria-label="Who detects breaches of this clause and applies its consequences">` : ''}
             <span class="breach-chips">
               ${own.map(b => `<span class="chip consequence">${esc(text(nano(b.consequence)))}<button type="button" class="x" data-action="detach" data-clause="${esc(cl)}" data-ref="${esc(b.consequence)}" aria-label="Detach">×</button></span>`).join('')}
               ${theirs.map(c => `<span class="chip consequence inherited" title="set by ${esc(inherited.get(cl).setBy)}">${esc(text(nano(c)))}</span>`).join('')}
@@ -255,6 +268,7 @@ function renderReport() {
   const rows = [
     ['Conflicts', c.conflicts.length], ['Definition clashes', c.definitionClashes.length], ['Intents with a gap', c.gaps.length],
     ['Tensions', c.tensions.length], ['Disagreements', c.disagreements.length], ['Clauses with consequences', r.breaches.length],
+    ['Consequences no one detects', c.unenforced.length],
   ];
   $('#report').innerHTML = `
     <section>
@@ -290,6 +304,7 @@ function submit() {
     '**Own intents**', bullets(draft.intents.map(i => `${text(nano(i.ref))} (\`${i.ref}\`)`)), '',
     '**Own clauses and definitions**', bullets(draft.members.filter(m => !draft.nanos[m]).map(m => `${short(text(nano(m)), 120)} (\`${m}\`)`)), '',
     '**Consequences of breach**', bullets(draft.breaches.map(b => `\`${b.clause}\` → ${text(nano(b.consequence))}`)), '',
+    '**Who detects breaches**', bullets(draft.enforcement.map(e => `\`${e.clause}\` → ${e.by.map(roleLabel).join(', ')}`)), '',
     '**Claims**', bullets(Object.values(draft.nanos).map(c => `\`${c.from}\` ${c.relation} \`${c.to}\`: ${c.rationale || 'no rationale given'}`)), '',
     '<details><summary>Composition, for digesting</summary>', '', '```json', JSON.stringify(draft), '```', '', '</details>',
   ].join('\n');
@@ -353,6 +368,11 @@ document.addEventListener('change', e => {
   if (el.dataset?.action === 'attach' && el.value) { ops.attach(el.dataset.clause, el.value); change(); }
   else if (el.dataset?.action === 'relation') { draft.nanos[el.dataset.ref].relation = el.value; change(); }
   else if (el.dataset?.action === 'rationale') { draft.nanos[el.dataset.ref].rationale = el.value; save(); }
+  else if (el.dataset?.action === 'enforcer') {
+    draft.enforcement = draft.enforcement.filter(x => x.clause !== el.dataset.clause);
+    if (el.value.trim()) draft.enforcement.push({ clause: el.dataset.clause, by: [roleId(el.value)] });
+    change();
+  }
 });
 
 function fillHead() {

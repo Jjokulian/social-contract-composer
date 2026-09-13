@@ -27,7 +27,8 @@ export function buildFixture() {
 
   const plant = add('plant-trees', 'clause', { role: 'council', modality: 'shall', text: 'Plant a street tree at every spacing interval.' });
   const barriers = add('root-barriers', 'clause', { role: 'council', modality: 'shall', text: 'Fit root barriers under every sidewalk tree.' });
-  const cables = add('underground-cables-clear', 'clause', { role: 'council', modality: 'shall', text: 'Keep a clear corridor above underground cables.' });
+  const cables = add('underground-cables-clear', 'clause', { role: 'council', modality: 'shall', binding: 'abide',   // a rule to keep, though phrased as "shall"
+    text: 'Keep a clear corridor above underground cables.' });
   const party = add('annual-street-party', 'clause', { role: 'council', modality: 'shall', text: 'Close one street a year for a party.' });
   const water = add('water-young-trees', 'clause', { role: 'council', modality: 'shall', text: 'Water every tree for its first three summers.' });
 
@@ -86,6 +87,7 @@ export function buildFixture() {
     intents: [{ ref: livable }],
     includes: [{ contract: streetTrees.ref, mode: 'nest', under: livable }, { contract: utilities.ref, mode: 'add' }],
     breaches: [{ clause: plant, consequence: fine }],   // the town overrides street-trees for this clause
+    enforcement: [{ clause: plant, by: 'council' }],     // and assigns who detects breaches of it; barriers' warning has no one
   });
 
   add('dryville-rain', 'evaluation', { measure: rainfall, society: 'dryville', value: 300, observedOn: '2030', sourceUrl: 'https://example.org/dryville' }, 'critic');
