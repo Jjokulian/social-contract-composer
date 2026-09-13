@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addNano, addContract } from '../server/store.mjs';
+import { addNano, addContract, reviseContract } from '../server/store.mjs';
 import { report, snapshot, evaluate, jointlyImpossible } from '../server/checks.mjs';
 import { buildFixture } from './fixture.mjs';
 
@@ -29,6 +29,21 @@ test('revisions are append-only', () => {
   const next = addNano(db, { id: 'shade-walkers', kind: 'intent', filedBy: 'planners', source: 'test', statement: 'Shade for everyone outdoors' });
   assert.equal(next.ref, 'shade-walkers@2');
   assert.equal(refs.shade, 'shade-walkers@1');
+});
+
+test('revising a contract swaps pinned references and leaves claims about the old revision out of scope', () => {
+  const { db, refs, contracts } = buildFixture();
+  const plant2 = addNano(db, { id: 'plant-trees', kind: 'clause', filedBy: 'planners', source: 'test',
+    role: 'council', modality: 'shall', text: 'Plant a native street tree at every spacing interval.' }).ref;
+  const revised = reviseContract(db, contracts.streetTrees, { replace: { [refs.plant]: plant2 }, filedBy: 'planners', source: 'test' });
+  assert.equal(revised.ref, 'street-trees@2');
+  const r = report(db, revised.ref);
+  assert.equal(r.tree[0].ref, refs.greenStreets);
+  assert.deepEqual(r.parameters.map(p => [p.id, p.value]), [['tree-spacing', 10]]);
+  assert.ok(r.nanos[plant2] && !r.nanos[refs.plant], 'the new clause revision replaces the old one');
+  assert.equal(r.claims[refs.shadeDense], undefined, 'claims pinned to plant-trees@1 no longer apply');
+  assert.ok(r.claims[refs.barrierHolds], 'claims about untouched clauses carry over');
+  assert.deepEqual(report(db, contracts.town).tree[0].children[0].ref, refs.greenStreets, 'the town still pins street-trees@1');
 });
 
 test('the store rejects references of the wrong kind and rolls the whole write back', () => {

@@ -158,6 +158,37 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
   })();
 }
 
+// Add the next revision of a contract, derived from its current one, so a change never restates the whole contract.
+//   replace:    { oldRef: newRef }   — swaps any intent, member, parameter or nesting reference
+//   add / drop: [ref]                — members to add, or (by their current reference) to drop
+//   addIntents: [{ ref, combine?, parent? }]
+export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], filedBy, source, title, status } = {}) {
+  const crid = resolveContract(db, id);
+  const current = db.prepare(`SELECT c.contract_id AS id, c.title, c.status, k.scale FROM contract_rev c
+                               JOIN contract k ON k.id = c.contract_id WHERE c.crid = ?`).get(crid);
+  const swap = ref => replace[ref] ?? ref;
+  const parents = new Map();
+  for (const r of db.prepare('SELECT child_rid, parent_rid FROM contract_refines WHERE crid = ?').all(crid)) {
+    const child = refOf(db, r.child_rid);
+    parents.set(child, [...(parents.get(child) ?? []), swap(refOf(db, r.parent_rid))]);
+  }
+  const intents = db.prepare('SELECT intent_rid, combine FROM contract_intent WHERE crid = ? ORDER BY position').all(crid)
+    .map(i => { const ref = refOf(db, i.intent_rid); return { ref: swap(ref), combine: i.combine, parent: parents.get(ref) ?? [] }; });
+  const members = db.prepare('SELECT rid FROM contract_member WHERE crid = ? ORDER BY position').pluck().all(crid)
+    .map(rid => refOf(db, rid)).filter(ref => !drop.includes(ref)).map(swap);
+  const parameters = Object.fromEntries(db.prepare('SELECT parameter_rid, value FROM contract_parameter WHERE crid = ?').all(crid)
+    .map(p => [swap(refOf(db, p.parameter_rid)), p.value]));
+  const includes = db.prepare('SELECT included_crid, mode, under_intent_rid FROM contract_include WHERE crid = ?').all(crid)
+    .map(i => ({
+      contract: db.prepare("SELECT contract_id || '@' || rev FROM contract_rev WHERE crid = ?").pluck().get(i.included_crid),
+      mode: i.mode, under: i.under_intent_rid === null ? undefined : swap(refOf(db, i.under_intent_rid)),
+    }));
+  return addContract(db, {
+    id: current.id, scale: current.scale, title: title ?? current.title, status: status ?? current.status, filedBy, source,
+    intents: [...intents, ...addIntents], members: [...members, ...add], parameters, includes,
+  });
+}
+
 // ─── Reading ─────────────────────────────────────────────────────────────────
 
 const READ = {
