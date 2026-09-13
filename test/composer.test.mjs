@@ -54,6 +54,30 @@ test('a draft composed in the browser is evaluated exactly like a stored contrac
   assert.equal(stored.checks.definitionClashes.length, 1);
 });
 
+test('a nano’s picos are fixed when it is written: a newer or better pico never changes what it means', () => {
+  const { db, refs, contracts } = buildFixture();
+  const was = [{ phrase: 'street tree', pico: 'street-tree@1' }];
+  assert.deepEqual(report(db, contracts.streetTrees).nanos[refs.plant].picos, was);
+  assert.throws(() => addNano(db, { id: 'bad-ref', kind: 'intent', filedBy: 'planners', source: 'test', statement: 'Shade',
+    picos: [{ phrase: 'street tree', pico: 'street-tree@1' }] }), /does not occur/);
+
+  // A "better worked out" pico for the same words: the clause keeps its meaning, and the new sense shows as competing.
+  const better = addNano(db, { id: 'street-tree-planting', kind: 'definition', filedBy: 'planners', source: 'test', term: 'street-tree',
+    meaning: 'A tree the council planted in the right of way.', forms: ['a street tree', 'street tree'] }).ref;
+  const withBetter = report(db, reviseContract(db, contracts.streetTrees, { add: [better], filedBy: 'planners', source: 'test' }).ref);
+  assert.deepEqual(withBetter.nanos[refs.plant].picos, was, 'the clause still means what it meant');
+  assert.ok(withBetter.checks.definitionClashes.some(c => c.kind === 'senses' && c.definitions.includes(better)));
+
+  // A newer revision of the pico it uses: the clause keeps the older sense, shown as such until it is rewritten.
+  const tree2 = addNano(db, { id: 'street-tree', kind: 'definition', filedBy: 'planners', source: 'test', term: 'street-tree',
+    meaning: 'Any tree in the public right of way, planted or self-sown.' }).ref;
+  const revised = report(db, reviseContract(db, contracts.streetTrees, { replace: { 'street-tree@1': tree2 }, filedBy: 'planners', source: 'test' }).ref);
+  assert.deepEqual(revised.nanos[refs.plant].picos, was);
+  assert.deepEqual(revised.checks.staleReferences, [{ nano: refs.plant, phrase: 'street tree', pico: 'street-tree@1', current: tree2 }]);
+  assert.ok(revised.checks.definitionClashes.some(c => c.kind === 'versions'));
+  assert.throws(() => db.prepare('DELETE FROM nano_pico').run(), /fixed with its revision/);
+});
+
 test('revisions are append-only', () => {
   const { db, refs } = buildFixture();
   assert.throws(() => db.prepare("UPDATE intent_body SET statement = 'changed'").run(), /immutable/);
@@ -186,7 +210,7 @@ test('a social contract nests, adds, and surfaces clashes, conflicts, gaps and o
   const r = report(db, contracts.town);
   assert.deepEqual(r.tree.map(n => n.ref), [refs.livable, refs.power, refs.quiet]);
   assert.equal(r.tree[0].children[0].ref, refs.greenStreets, 'street-trees hangs under livable-town');
-  assert.deepEqual(r.checks.definitionClashes, [{ term: 'street-tree', definitions: ['street-tree@1', 'street-tree-broad@1'] }]);
+  assert.deepEqual(r.checks.definitionClashes, [{ term: 'street-tree', definitions: ['street-tree@1', 'street-tree-broad@1'], kind: 'senses' }]);
   assert.deepEqual(r.nanos['street-tree@1'].forms, ['street tree'], 'a pico with no stated forms is referred to by its term');
   assert.deepEqual(r.nanos['street-tree-broad@1'].forms, ['street tree', 'street trees'], 'stated forms are the words that refer to it');
   assert.deepEqual(r.checks.conflicts, [{ claim: refs.treesVsCables, between: [refs.plant, refs.cables], endorsed: false }]);

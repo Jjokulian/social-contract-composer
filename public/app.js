@@ -113,7 +113,7 @@ function renderReport(r) {
   const clause = ref => {
     const c = nano(ref);
     if (!c.text) return esc(humanize(ref));
-    return `<span class="modality" title="Binds: ${esc(c.roleLabel)}">${esc(c.modality)}</span> ${bindingChip(c.binding)} ${terms(c.text)}`;
+    return `<span class="modality" title="Binds: ${esc(c.roleLabel)}">${esc(c.modality)}</span> ${bindingChip(c.binding)} ${terms(c.text, c)}`;
   };
 
   const context = c => {
@@ -144,7 +144,7 @@ function renderReport(r) {
         <span class="ref">${esc(c.ref)} · filed by ${esc(c.filedBy)}${issueLink(c.source) ? ` · from ${issueLink(c.source)}` : ''}</span>
       </div>
       ${withClause ? `<p class="clause-text" style="margin:0">${clause(c.from)}</p>` : ''}
-      <p class="rationale" style="margin:0">${terms(c.rationale)}</p>
+      <p class="rationale" style="margin:0">${terms(c.rationale, c)}</p>
       ${context(c)}
     </div>`;
 
@@ -176,7 +176,7 @@ function renderReport(r) {
       <li class="intent" data-key="${esc([...path, node.ref].join('>'))}">
         <div class="node">
           <span class="cov ${node.coverage}">${node.coverage}</span>
-          <span class="statement">${terms(node.statement)}</span>
+          <span class="statement">${terms(node.statement, nano(node.ref))}</span>
           <div class="node-meta">${flags}</div>
           ${node.influences.length ? `<p class="bears">Bears on it: ${node.influences.map(i => label(nano(i).from)).join(', ')}</p>` : ''}
           ${all.length ? `<details class="claims"><summary>${tally || 'claims'}</summary><div class="claim-list">${byClause(all)}</div></details>` : ''}
@@ -228,7 +228,7 @@ function renderReport(r) {
     `<header>
       <p class="eyebrow">${r.contract.scale === 'social' ? 'milli: a composed social contract' : 'micro: a micro-social-contract'} ·${esc(r.contract.status)} · ${esc(r.contract.ref)}${r.society ? ` · evaluated in ${esc(r.society)}` : ''}</p>
       <h1 class="title">${esc(r.contract.title)}</h1>
-      <p class="thesis">${r.tree.map(n => terms(n.statement)).join(' · ')}</p>
+      <p class="thesis">${r.tree.map(n => terms(n.statement, nano(n.ref))).join(' · ')}</p>
       ${r.contract.status === 'proposed' ? `<p class="proposal-note">A proposal, raised in ${issueLink(r.contract.source) || 'an issue'} and not yet granted. It composes ${r.contract.includes.map(i => `<code>${esc(i.ref)}</code>`).join(', ')} with the proposal’s own nanos, so its effect on the intents can be tested here before anyone decides. Discuss it on the issue.</p>` : ''}
       <div class="coverage-bar" role="img" aria-label="${count('claimed')} intents claimed, ${count('thin')} thin, ${count('gap')} gaps">${bar}</div>
       <div class="legend">
@@ -249,7 +249,7 @@ function renderReport(r) {
         if (!clauses.length) return '';
         const roles = [...new Set(clauses.map(c => c.roleLabel))];
         return `<div class="finding"><h3>${heading}</h3><dl class="ctx">${roles.map(role => `<dt>${esc(role)}</dt><dd>${clauses.filter(c => c.roleLabel === role)
-          .map(c => `${terms(c.text)}${kind === 'abide' ? (r.enforcement.some(e => e.clause === c.ref) ? '' : ' <span class="fails">· no one assigned to detect breaches</span>') : ''}`).join('<br>')}</dd>`).join('')}</dl></div>`;
+          .map(c => `${terms(c.text, c)}${kind === 'abide' ? (r.enforcement.some(e => e.clause === c.ref) ? '' : ' <span class="fails">· no one assigned to detect breaches</span>') : ''}`).join('<br>')}</dd>`).join('')}</dl></div>`;
       }).join('') || empty('This composition has no clauses yet.')),
     section('disagreements', 'Disagreements', 'Claims about the same clause and intent that reach different conclusions, with the context that separates them.',
       checks.disagreements.length ? checks.disagreements.map(disagreementHtml).join('')
@@ -289,10 +289,16 @@ function renderReport(r) {
         ? checks.conflicts.map(c => `<p style="margin:0">${named(c.between[0])} conflicts with ${named(c.between[1])} <span class="ref">${esc(c.claim)}</span></p>`).join('')
         : empty('No conflicting nanos in this composition.')}</div>
       <div class="finding"><h3>Definition clashes</h3>${checks.definitionClashes.length
-        ? checks.definitionClashes.map(d => `<p style="margin:0">“${esc(d.term)}” is defined twice: ${d.definitions.map(named).join(' and ')}</p>`).join('')
-        : empty('Each term has one definition.')}</div>`),
+        ? checks.definitionClashes.map(d => `<p style="margin:0">${d.kind === 'versions'
+            ? `Two revisions of “${esc(d.term)}” are in use: <span class="ref">${d.definitions.map(esc).join(' and ')}</span>`
+            : `“${esc(d.term)}” has two senses in play: ${d.definitions.map(named).join(' and ')}`}</p>`).join('')
+        : empty('Each term has one definition.')}</div>
+      <div class="finding"><h3>Different revisions in use</h3>${checks.staleReferences.length
+        ? `<p style="margin:0 0 6px">These nanos were written with a different revision of a pico than the one this contract defines. They keep the meaning they were written with until they are rewritten as new revisions.</p>`
+          + checks.staleReferences.map(s => `<p style="margin:0">${named(s.nano)}: “${esc(s.phrase)}” means <span class="ref">${esc(s.pico)}</span>; this contract defines <span class="ref">${esc(s.current)}</span></p>`).join('')
+        : empty('Every nano uses the revision of its picos that this contract defines.')}</div>`),
     section('definitions', 'Picos: defined words', 'Words with a strict definition in this contract. Wherever one appears in the text above, it is underlined; hover or focus it to read the definition. Where a composition brings in a different definition of the same word, it shows as a clash above.',
-      `<dl class="defs">${definitions.map(d => `<div><dt>${esc(d.termLabel)} <span class="ref">${esc(d.ref)}</span></dt><dd>${terms(d.meaning, d.ref)}</dd>
+      `<dl class="defs">${definitions.map(d => `<div><dt>${esc(d.termLabel)} <span class="ref">${esc(d.ref)}</span></dt><dd>${terms(d.meaning, d)}</dd>
         <dd class="forms">refers to it: ${d.forms.map(f => `“${esc(f)}”`).join(', ')}</dd></div>`).join('')}</dl>`),
   ].join('');
 }
@@ -354,6 +360,7 @@ function renderPanel(r) {
     ['structure', 'Orphan clauses', c.orphans.length],
     ['structure', 'Conflicts', c.conflicts.length],
     ['structure', 'Definition clashes', c.definitionClashes.length],
+    ['structure', 'Different revisions in use', c.staleReferences.length],
   ];
   $('#tally').innerHTML = rows.map(([id, label, n]) =>
     `<li><a href="#${id}"><span>${label}</span><span class="n${n ? '' : ' zero'}">${n}</span></a></li>`).join('');
@@ -362,11 +369,14 @@ function renderPanel(r) {
 // ─── Picos: strictly defined words, underlined wherever they appear, defined on hover or focus ─
 // A word refers to a pico when it matches one of the pico's forms. Longest forms match first, whole words only.
 
-let matcher = picoMatcher([]);
-function preparePicos(r) { matcher = picoMatcher(Object.values(r.nanos).filter(n => n.kind === 'definition')); }
-// Plain text in, HTML out: every reference to a pico becomes an underlined, focusable word.
-const terms = (text, self) => matcher.render(String(text ?? ''), esc,
-  (html, p) => `<span class="term" tabindex="0" data-pico="${esc(p.ref)}">${html}</span>`, self);
+// Plain text in, HTML out: the phrases `owner` recorded as referring to picos become underlined, focusable words.
+// Only the nano's own recorded references are used, so a pico added later never changes what an existing nano says.
+function terms(text, owner) {
+  const recorded = owner?.picos ?? [];
+  if (!recorded.length) return esc(text ?? '');
+  return picoMatcher(recorded.map(r => ({ ref: r.pico, forms: [r.phrase] })))
+    .render(String(text ?? ''), esc, (html, p) => `<span class="term" tabindex="0" data-pico="${esc(p.ref)}">${html}</span>`);
+}
 
 const tip = Object.assign(document.createElement('div'), { id: 'pico-tip', role: 'tooltip', hidden: true });
 document.body.append(tip);
@@ -437,7 +447,6 @@ document.addEventListener('click', e => {
 
 function render(r) {
   shown = r;
-  preparePicos(r);
   treeIndex.clear();
   const walk = n => { treeIndex.set(n.ref, n); n.children.forEach(walk); };
   r.tree.forEach(walk);

@@ -168,6 +168,7 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
     conflicts: claims.filter(c => c.active && c.relation === 'conflicts')
       .map(c => ({ claim: c.ref, between: [c.from, c.to], endorsed: c.endorsed })),
     definitionClashes: snap.definitionClashes,
+    staleReferences: snap.staleReferences,   // nanos written with another revision of a pico than the composition defines
     gaps: flat.filter(n => n.coverage === 'gap').map(n => n.ref),
     thin: flat.filter(n => n.coverage === 'thin').map(n => n.ref),
     // A clause serves an intent directly (it is a claim's `from`) or as a precondition (it is in a claim's `given`).

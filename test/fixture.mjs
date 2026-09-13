@@ -25,14 +25,15 @@ export function buildFixture() {
   const quiet = add('quiet-streets', 'intent', { statement: 'Quiet streets' });
   const livable = add('livable-town', 'intent', { statement: 'A livable town' });
 
-  const plant = add('plant-trees', 'clause', { role: 'council', modality: 'shall', text: 'Plant a street tree at every spacing interval.' });
+  const treeNarrow = add('street-tree', 'definition', { term: 'street-tree', meaning: 'A tree planted in the public right of way.' });
+  const plant = add('plant-trees', 'clause', { role: 'council', modality: 'shall', text: 'Plant a street tree at every spacing interval.',
+    picos: [{ phrase: 'street tree', pico: treeNarrow }] });
   const barriers = add('root-barriers', 'clause', { role: 'council', modality: 'shall', text: 'Fit root barriers under every sidewalk tree.' });
   const cables = add('underground-cables-clear', 'clause', { role: 'council', modality: 'shall', binding: 'abide',   // a rule to keep, though phrased as "shall"
     text: 'Keep a clear corridor above underground cables.' });
   const party = add('annual-street-party', 'clause', { role: 'council', modality: 'shall', text: 'Close one street a year for a party.' });
   const water = add('water-young-trees', 'clause', { role: 'council', modality: 'shall', text: 'Water every tree for its first three summers.' });
 
-  const treeNarrow = add('street-tree', 'definition', { term: 'street-tree', meaning: 'A tree planted in the public right of way.' });
   const treeBroad = add('street-tree-broad', 'definition', { term: 'street-tree', meaning: 'Any tree visible from a street.',
     forms: ['street tree', 'street trees'] }, 'utility');
 

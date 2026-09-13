@@ -16,5 +16,5 @@ A composer of social contracts. The scale: a **milli** is a composed Social Cont
 - **Use the authors' words.** Intents, definitions and clauses go in as the authors give them. Relations you draft (claims, influences, assumptions) are filed by `claude-draft`, with a rationale.
 - **Don't invent means.** An intent the authors haven't given clauses for stays a visible gap; ask instead of filling it.
 - **Keep one-off revision scripts out of the repo.** The store is the record; describe each revision in its commit message.
-- **Write with picos.** Whenever you write or revise text in the store, follow `.claude/skills/write-with-picos/SKILL.md`.
+- **Write with picos.** A nano records which picos its words refer to when it is written, and that never changes. A new or revised pico doesn't change existing nanos; to adopt it, write new revisions of them. Whenever you write or revise text in the store, follow `.claude/skills/write-with-picos/SKILL.md`.
 - Before committing: `npm test` and `npm run build:static`.

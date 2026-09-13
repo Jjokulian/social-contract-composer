@@ -115,8 +115,14 @@ const WRITE = {
       .run(rid, resolve(db, b.measure, 'measure'), b.society, b.value, b.observedOn, b.sourceUrl),
 };
 
+// The field that holds a nano's words, per kind: where its picos are referred to.
+export const TEXT_FIELD = { intent: 'statement', clause: 'text', definition: 'meaning', claim: 'rationale', assumption: 'statement',
+                            influence: 'rationale', consequence: 'statement', measure: 'description', parameter: 'meaning' };
+
 // Add a revision of a nano (revision 1 creates the nano). Returns { ref, rid }.
-export function addNano(db, { id, kind, filedBy, source, ...body }) {
+//   picos: [{ phrase, pico }] — the phrases in its text that refer to which pico revisions, fixed with this revision.
+//          tools/picos.mjs suggests them from the picos' forms.
+export function addNano(db, { id, kind, filedBy, source, picos = [], ...body }) {
   const write = WRITE[kind];
   if (!write) throw new StoreError(`unknown kind: ${kind}`);
   return db.transaction(() => {
@@ -127,6 +133,11 @@ export function addNano(db, { id, kind, filedBy, source, ...body }) {
     const rid = Number(db.prepare('INSERT INTO revision (nano_id, rev, filed_by, source) VALUES (?, ?, ?, ?)')
       .run(id, rev, filedBy, source).lastInsertRowid);
     write(db, rid, body);
+    const text = String(body[TEXT_FIELD[kind]] ?? '').toLowerCase();
+    for (const { phrase, pico } of picos) {
+      if (!text.includes(phrase.toLowerCase())) throw new StoreError(`“${phrase}” does not occur in the text of ${id}`);
+      db.prepare('INSERT INTO nano_pico (rid, phrase, pico_rid) VALUES (?, ?, ?)').run(rid, phrase, resolve(db, pico, 'definition'));
+    }
     return { ref: `${id}@${rev}`, rid };
   })();
 }
@@ -202,7 +213,7 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
     .map(p => [swap(refOf(db, p.parameter_rid)), p.value]));
   const includes = db.prepare('SELECT included_crid, mode, under_intent_rid FROM contract_include WHERE crid = ?').all(crid)
     .map(i => ({
-      contract: db.prepare("SELECT contract_id || '@' || rev FROM contract_rev WHERE crid = ?").pluck().get(i.included_crid),
+      contract: swap(db.prepare("SELECT contract_id || '@' || rev FROM contract_rev WHERE crid = ?").pluck().get(i.included_crid)),
       mode: i.mode, under: i.under_intent_rid === null ? undefined : swap(refOf(db, i.under_intent_rid)),
     }));
   const breaches = db.prepare('SELECT clause_rid, consequence_rid FROM contract_breach WHERE crid = ?').all(crid)
@@ -283,7 +294,9 @@ export function describe(db, rid) {
   const r = db.prepare(`SELECT r.rid, r.nano_id AS id, r.rev, n.kind, r.filed_by AS filedBy, r.source, r.created_at AS createdAt
                         FROM revision r JOIN nano n ON n.id = r.nano_id WHERE r.rid = ?`).get(rid);
   if (!r) throw new StoreError(`no nano revision ${rid}`, 404);
-  return { ref: `${r.id}@${r.rev}`, ...r, ...READ[r.kind](db, rid) };
+  const picos = db.prepare('SELECT phrase, pico_rid FROM nano_pico WHERE rid = ? ORDER BY phrase').all(rid)
+    .map(p => ({ phrase: p.phrase, pico: refOf(db, p.pico_rid) }));
+  return { ref: `${r.id}@${r.rev}`, ...r, ...READ[r.kind](db, rid), picos };
 }
 
 // The whole store as plain JSON: every nano revision, every contract revision's structure, and every society's

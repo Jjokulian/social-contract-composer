@@ -1,7 +1,6 @@
 // The graph view: the same composition as the Contracts view, drawn as nodes and edges that flow upward into the top
 // intents. Intents at the top, the clauses that serve them below, measures and consequences further down.
 import { evaluate } from './evaluate.mjs';
-import { picoMatcher } from './picos.mjs';
 import { findSource } from './source.mjs';
 import { coverageReason } from './explain.mjs';
 
@@ -73,15 +72,12 @@ function elements(r, show) {
       edge(q, b.clause, 'breach', { setBy: b.setBy });
     }
   }
-  if (show.picos) {
-    const picos = Object.values(r.nanos).filter(n => n.kind === 'definition');
-    const matcher = picoMatcher(picos);
-    for (const p of picos) node(p.ref, 'pico', p.termLabel);
-    for (const [id] of [...nodes]) {
-      const n = nano(id), text = n.statement ?? n.text;
-      if (!text || n.kind === 'definition') continue;
-      for (const ref of new Set(matcher.find(text, id).map(m => m.pico.ref))) edge(ref, id, 'uses');
-    }
+  if (show.picos) {   // each nano's recorded references to picos
+    for (const [id] of [...nodes])
+      for (const ref of new Set((nano(id).picos ?? []).map(p => p.pico))) {
+        node(ref, 'pico', nano(ref).termLabel ?? ref);
+        edge(ref, id, 'uses');
+      }
   }
   return [...nodes.values(), ...edges];
 }

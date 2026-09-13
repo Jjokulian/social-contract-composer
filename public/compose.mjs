@@ -74,12 +74,6 @@ export function compose(cat, spec) {
   }
 
   const clauses = ofKind('clause');
-  const definitions = ofKind('definition');
-  const definitionClashes = [];
-  for (let i = 0; i < definitions.length; i++)
-    for (let j = i + 1; j < definitions.length; j++)
-      if (nanoOf(definitions[i]).term === nanoOf(definitions[j]).term)
-        definitionClashes.push({ term: nanoOf(definitions[i]).term, definitions: [definitions[i], definitions[j]] });
 
   // Consequences of breach are set by the composition: for each clause, the outermost contract that attaches any decides.
   const breachByClause = new Map();
@@ -103,12 +97,34 @@ export function compose(cat, spec) {
 
   const described = new Set([...members, ...claims.map(c => c.ref), ...claims.flatMap(c => c.measuredBy), ...influences,
                              ...breaches.flatMap(b => b.consequences)]);
+
+  // The picos every described nano refers to (recorded with the nano), and the picos those picos refer to.
+  for (const queue = [...described]; queue.length;)
+    for (const { pico } of nanoOf(queue.pop()).picos ?? [])
+      if (!described.has(pico)) { described.add(pico); queue.push(pico); }
+
+  // Two definitions of one term in play. Different picos are competing senses; two revisions of one pico mean some nanos
+  // were written with another revision than the composition defines. Neither ever changes a nano: they are shown, for
+  // the authors to settle.
+  const definitions = byRid([...described].filter(ref => nanoOf(ref).kind === 'definition'));
+  const definitionClashes = [];
+  for (let i = 0; i < definitions.length; i++)
+    for (let j = i + 1; j < definitions.length; j++)
+      if (nanoOf(definitions[i]).term === nanoOf(definitions[j]).term)
+        definitionClashes.push({ term: nanoOf(definitions[i]).term, definitions: [definitions[i], definitions[j]],
+                                 kind: nanoId(definitions[i]) === nanoId(definitions[j]) ? 'versions' : 'senses' });
+  const current = new Map(ofKind('definition').map(ref => [nanoId(ref), ref]));
+  const staleReferences = [];
+  for (const ref of byRid(described))
+    for (const { phrase, pico } of nanoOf(ref).picos ?? [])
+      if (current.has(nanoId(pico)) && current.get(nanoId(pico)) !== pico)
+        staleReferences.push({ nano: ref, phrase, pico, current: current.get(nanoId(pico)) });
   return {
     contract: {
       id: spec.id, rev: spec.rev, ref: spec.ref, scale: spec.scale, title: spec.title, status: spec.status, source: spec.source,
       includes: (spec.includes ?? []).map(i => ({ ref: i.ref, mode: i.mode })),
     },
-    parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, influences, breaches,
+    parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, staleReferences, influences, breaches,
     enforcement, roles,
     nanos: Object.fromEntries(byRid(described).map(ref => [ref, nanoOf(ref)])),
   };

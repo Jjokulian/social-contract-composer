@@ -113,6 +113,17 @@ CREATE TABLE IF NOT EXISTS definition_form (
   PRIMARY KEY (rid, form)
 ) STRICT;
 
+-- The picos a nano's words refer to, recorded with the nano revision and never changed after. Adding or revising a pico
+-- never changes what an existing nano means; to use another pico, write a new revision of the nano. Forms (above) only
+-- suggest these references while text is written.
+CREATE TABLE IF NOT EXISTS nano_pico (
+  rid      INTEGER NOT NULL REFERENCES revision(rid),
+  phrase   TEXT    NOT NULL CHECK (phrase <> ''),
+  pico_rid INTEGER NOT NULL REFERENCES revision(rid),
+  PRIMARY KEY (rid, phrase),
+  CHECK (rid <> pico_rid)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS parameter_body (
   rid     INTEGER PRIMARY KEY REFERENCES revision(rid),
   label   TEXT NOT NULL,
@@ -351,6 +362,10 @@ WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.clause_rid) IS NOT 'clause'
   OR (SELECT kind FROM revision_kind WHERE rid = NEW.consequence_rid) IS NOT 'consequence'
 BEGIN SELECT RAISE(ABORT, 'a breach attaches a consequence to a clause'); END;
 
+CREATE TRIGGER IF NOT EXISTS nano_pico_kind BEFORE INSERT ON nano_pico
+WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.pico_rid) IS NOT 'definition'
+BEGIN SELECT RAISE(ABORT, 'a nano refers to a pico: a definition revision'); END;
+
 CREATE TRIGGER IF NOT EXISTS contract_enforcement_kind BEFORE INSERT ON contract_enforcement
 WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.clause_rid) IS NOT 'clause'
 BEGIN SELECT RAISE(ABORT, 'enforcement is assigned for a clause'); END;
@@ -395,6 +410,8 @@ CREATE TRIGGER IF NOT EXISTS evaluation_body_immutable    BEFORE UPDATE ON evalu
 CREATE TRIGGER IF NOT EXISTS influence_body_immutable     BEFORE UPDATE ON influence_body     BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS consequence_body_immutable   BEFORE UPDATE ON consequence_body   BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS definition_form_immutable    BEFORE UPDATE ON definition_form    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS nano_pico_immutable_u        BEFORE UPDATE ON nano_pico          BEGIN SELECT RAISE(ABORT, 'a nano’s picos are fixed with its revision: write a new revision to use another pico'); END;
+CREATE TRIGGER IF NOT EXISTS nano_pico_immutable_d        BEFORE DELETE ON nano_pico          BEGIN SELECT RAISE(ABORT, 'a nano’s picos are fixed with its revision: write a new revision to use another pico'); END;
 CREATE TRIGGER IF NOT EXISTS contract_breach_immutable    BEFORE UPDATE ON contract_breach    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_enforcement_immutable BEFORE UPDATE ON contract_enforcement BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_rev_immutable_u     BEFORE UPDATE ON contract_rev       BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
