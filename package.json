@@ -1,0 +1,17 @@
+{
+  "name": "social-contract-composer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Compose micro-social-contracts from reusable nanos and check the satisfiability they claim.",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1"
+  }
+}
