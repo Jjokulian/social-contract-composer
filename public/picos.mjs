@@ -14,7 +14,8 @@ export function picoMatcher(picos) {
       byForm.set(key, p);
     }
   const forms = [...byForm.keys()].sort((a, b) => b.length - a.length).map(escapeRegex);
-  const pattern = forms.length ? new RegExp(`(?<![\\p{L}\\p{N}’'-])(${forms.join('|')})(?![\\p{L}\\p{N}’'-])`, 'giu') : null;
+  // Whole words only; a possessive ending ("signatory’s") is allowed after a form and left out of the match.
+  const pattern = forms.length ? new RegExp(`(?<![\\p{L}\\p{N}’'-])(${forms.join('|')})(?=(?:[’']s)?(?![\\p{L}\\p{N}’'-]))`, 'giu') : null;
 
   // Every reference in plain text: [{ index, text, pico }]. `self` keeps a pico's own definition from linking to itself.
   const find = (text, self) => !pattern ? [] : [...String(text).matchAll(pattern)]

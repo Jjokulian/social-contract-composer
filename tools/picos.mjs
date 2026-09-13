@@ -5,16 +5,19 @@
 //   node tools/picos.mjs suggest <contract> "<text>"   the references to record for new text: pass them as `picos` to addNano
 //   node tools/picos.mjs check   <contract>            recorded references, different revisions in use, suggestions not recorded,
 //                                                      look-alikes, and forms shared by two picos (exits 1 on any)
+//   node tools/picos.mjs relink  <contract> [author]   write new revisions so every nano records the references its picos
+//                                                      suggest; text never changes; others' claims are never detached
 import { openStore, catalogue, TEXT_FIELD, DEFAULT_PATH } from '../server/store.mjs';
 import { report } from '../server/checks.mjs';
+import { relinkContract } from '../server/relink.mjs';
 import { picoMatcher, suggest, nearMisses } from '../public/picos.mjs';
 
 const [command, contract, text] = process.argv.slice(2);
 const usage = () => {
-  console.error('usage: node tools/picos.mjs list [contract] | suggest <contract> "<text>" | check <contract>');
+  console.error('usage: node tools/picos.mjs list [contract] | suggest <contract> "<text>" | check <contract> | relink <contract> [author]');
   process.exit(2);
 };
-const db = openStore(DEFAULT_PATH, { readonly: true });
+const db = openStore(DEFAULT_PATH, { readonly: command !== 'relink' });
 const nanoId = ref => ref.split('@')[0];
 
 // The picos a composition defines: its definitions, at the revision the composition includes.
@@ -69,4 +72,11 @@ if (command === 'list') {
   for (const [w, e] of [...looks].sort((a, b) => b[1].n - a[1].n)) console.log(`  ${`${w} ×${e.n}`.padEnd(20)} like ${e.picos.join(', ')}`);
   console.log(`\nForms shared by two picos: ${m.collisions.length ? m.collisions.map(c => `“${c.form}” in ${c.picos.join(' and ')}`).join('; ') : 'none'}`);
   if (m.collisions.length || stale.length || clashes.length) process.exitCode = 1;
+} else if (command === 'relink') {
+  if (!contract) usage();
+  const author = text ?? 'claude-draft';
+  const result = relinkContract(db, contract, { filedBy: author, source: `relinked to its picos by ${author}` });
+  console.log(result.contract ? `Appended ${result.contract}` : 'Nothing to relink.');
+  for (const [from, to] of result.rewritten) console.log(`  ${from} → ${to}`);
+  for (const b of result.blocked) console.log(`  left as is: ${b.nano} (other claims point at it: ${b.by.join(', ')})`);
 } else usage();

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addNano, addContract, reviseContract, catalogue } from '../server/store.mjs';
+import { addNano, addContract, reviseContract, catalogue, addVocabulary } from '../server/store.mjs';
+import { relinkContract } from '../server/relink.mjs';
 import { report, snapshot, evaluate, compose, jointlyImpossible } from '../server/checks.mjs';
 import { buildFixture } from './fixture.mjs';
 import { picoMatcher, nearMisses } from '../public/picos.mjs';
@@ -15,6 +16,35 @@ test('picos link whole words, longest form first, never to themselves, and flag 
   assert.deepEqual(picoMatcher([mother, { ref: 'x@1', forms: ['Mother thrives'] }]).collisions, [{ form: 'mother thrives', picos: ['m@1', 'x@1'] }]);
   assert.deepEqual(nearMisses('She is thriving.', picoMatcher([{ ref: 'b@1', forms: ['baby thrives'] }])).map(x => x.word), ['thriving'],
     'a word sharing the stem of a form’s longest word, but not linked, is a look-alike');
+  const s = picoMatcher([{ ref: 's@1', forms: ['signatory'] }]);
+  assert.deepEqual(s.find('The signatory’s role; the signatory\'s seat; signatorys.').map(x => x.text), ['signatory', 'signatory'],
+    'a possessive links its form; a longer word does not');
+});
+
+test('relinking records missing pico references by new revisions, and never detaches others’ claims', () => {
+  const { db, refs, contracts } = buildFixture();
+  addVocabulary(db, 'term', 'establishment', 'establishment period');
+  addVocabulary(db, 'term', 'interval', 'spacing interval');
+  const est = addNano(db, { id: 'establishment', kind: 'definition', filedBy: 'planners', source: 'test', term: 'establishment',
+    meaning: 'The first three summers after planting.', forms: ['first three summers'] }).ref;
+  const interval = addNano(db, { id: 'spacing-interval', kind: 'definition', filedBy: 'planners', source: 'test', term: 'interval',
+    meaning: 'The distance set by the tree spacing parameter.', forms: ['spacing interval'] }).ref;
+  const withPicos = reviseContract(db, contracts.streetTrees, { add: [est, interval], filedBy: 'planners', source: 'test' }).ref;
+  const before = report(db, withPicos);
+
+  const result = relinkContract(db, withPicos, { filedBy: 'planners', source: 'test relink' });
+  const after = report(db, result.contract);
+  const water2 = result.rewritten.find(([old]) => old === 'water-young-trees@1')[1];
+  assert.deepEqual(after.nanos[water2].picos, [{ phrase: 'first three summers', pico: est }], 'the clause records the new reference');
+  assert.equal(after.nanos[water2].text, before.nanos['water-young-trees@1'].text, 'its text is unchanged');
+  const wet2 = result.rewritten.find(([old]) => old === refs.shadeWet)[1];
+  assert.deepEqual(after.claims[wet2].given, [water2], 'the claim that depends on it follows the new revision');
+  assert.equal(after.claims[wet2].filedBy, 'planners', 'a rewritten nano keeps its author');
+  assert.ok(result.blocked.some(b => b.nano === refs.plant), 'plant-trees is left as is: a critic’s claims point at it');
+  assert.deepEqual(after.nanos[refs.plant].picos, [{ phrase: 'street tree', pico: 'street-tree@1' }]);
+  assert.ok(after.claims[refs.shadeSparse], 'the critic’s claims stay in scope');
+  assert.equal(after.tree[0].coverage, before.tree[0].coverage, 'coverage is unchanged');
+  assert.deepEqual(after.checks.staleReferences, []);
 });
 
 const pair = (r, a, b) => r.checks.disagreements.find(d => [d.a, d.b].sort().join() === [a, b].sort().join());

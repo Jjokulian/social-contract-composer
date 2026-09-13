@@ -20,6 +20,7 @@ A **pico** is a strictly defined word. It is stored as a `definition` nano with 
 - **The word is used in a strict sense no pico covers.** Create a pico with the authors' definition in their words. Give it phrase-level forms, and add it to the contract with `reviseContract(db, '<contract>', { add: [ref] })`. Then record references to it in the nanos you write.
 - **The same word in another sense.** Create a separate pico with forms that don't overlap. In `pro-pregnancy`, *mother thriving* ("mother thrives") and *baby thriving* ("survive and thrive", "its thriving") are two picos.
 - **A better or revised pico for a word already in use.** Existing nanos keep their old references on purpose. The composer shows them as *different revisions in use* or *competing senses*. Rewrite each nano that should adopt the new pico as a new revision, and swap it into the contract with `reviseContract(…, { replace: { old: new } })`.
+- **A new pico whose words already appear in older texts.** `node tools/picos.mjs relink <contract> [author]` writes the cascade for you, in order: pico definitions, then the nanos using them, then the claims pointing at those, then a contract revision. Text never changes, existing references are kept, and it leaves alone (and reports) any nano that someone else's claim points at.
 
 ## After you write
 
