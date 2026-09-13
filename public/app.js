@@ -97,6 +97,13 @@ function formatValue(p, value) {
   return p.unit === 'percent' ? `${value}%` : String(value);
 }
 
+// Proposals and nanos raised in a GitHub issue carry `source: issue:<n>`; link them back to the discussion.
+const REPO = 'https://github.com/Jjokulian/social-contract-composer';
+const issueLink = source => {
+  const m = /^issue:(\d+)$/.exec(source ?? '');
+  return m ? `<a href="${REPO}/issues/${m[1]}">issue #${m[1]}</a>` : '';
+};
+
 const DIRECTION = { 'raises': 'raises', 'lowers': 'lowers', 'bears-on': 'bears on', 'stands-in-for': 'stands in for' };
 
 function renderReport(r) {
@@ -141,7 +148,7 @@ function renderReport(r) {
         <span>${esc(c.strength)}</span>
         <span class="status ${c.status}">${STATUS[c.status]}</span>
         ${c.endorsed ? '' : '<span class="flag">not endorsed by the contract</span>'}
-        <span class="ref">${esc(c.ref)} · filed by ${esc(c.filedBy)}</span>
+        <span class="ref">${esc(c.ref)} · filed by ${esc(c.filedBy)}${issueLink(c.source) ? ` · from ${issueLink(c.source)}` : ''}</span>
       </div>
       <p class="clause-text" style="margin:0">${clause(c.from)}</p>
       <p class="rationale" style="margin:0">${esc(c.rationale)}</p>
@@ -220,6 +227,7 @@ function renderReport(r) {
       <p class="eyebrow">${esc(r.contract.scale)}-social-contract · ${esc(r.contract.status)} · ${esc(r.contract.ref)}${r.society ? ` · evaluated in ${esc(r.society)}` : ''}</p>
       <h1 class="title">${esc(r.contract.title)}</h1>
       <p class="thesis">${r.tree.map(n => esc(n.statement)).join(' · ')}</p>
+      ${r.contract.status === 'proposed' ? `<p class="proposal-note">A proposal, raised in ${issueLink(r.contract.source) || 'an issue'} and not yet granted. It composes ${r.contract.includes.map(i => `<code>${esc(i.ref)}</code>`).join(', ')} with the proposal’s own nanos, so its effect on the intents can be tested here before anyone decides. Discuss it on the issue.</p>` : ''}
       <div class="coverage-bar" role="img" aria-label="${count('claimed')} intents claimed, ${count('thin')} thin, ${count('gap')} gaps">${bar}</div>
       <div class="legend">
         <span class="cov claimed">${count('claimed')} claimed: a sufficient claim, or covered children</span>
@@ -336,11 +344,13 @@ async function boot() {
   const [contracts, societies] = await Promise.all([source.contracts(), source.societies()]).catch(err => { fail(err.message); return []; });
   if (!contracts) return;
   if (!contracts.length) return fail('The store has no contracts yet.');
-  if (!contracts.some(c => c.id === state.contract)) state.contract = contracts[0].id;
+  if (!contracts.some(c => c.id === state.contract)) state.contract = (contracts.find(c => c.status !== 'proposed') ?? contracts[0]).id;
 
   const contractSelect = $('#contract');
-  contractSelect.innerHTML = contracts.map(c =>
-    `<option value="${esc(c.id)}">${esc(c.title)} (${esc(c.scale)}, ${esc(c.status)})</option>`).join('');
+  const option = c => `<option value="${esc(c.id)}">${esc(c.title)} (${esc(c.scale)}, ${esc(c.status)})</option>`;
+  const group = (label, list) => list.length ? `<optgroup label="${label}">${list.map(option).join('')}</optgroup>` : '';
+  contractSelect.innerHTML = group('Contracts', contracts.filter(c => c.status !== 'proposed'))
+    + group('Proposals', contracts.filter(c => c.status === 'proposed'));
   contractSelect.value = state.contract;
   contractSelect.addEventListener('change', () => { state.contract = contractSelect.value; state.parameters = {}; load(); });
 

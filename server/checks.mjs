@@ -7,8 +7,10 @@ export { evaluate, jointlyImpossible, compareContexts } from '../public/evaluate
 
 export function snapshot(db, contractRef) {
   const crid = resolveContract(db, contractRef);
-  const contract = db.prepare(`SELECT c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status
+  const contract = db.prepare(`SELECT c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c.source
                                FROM contract_rev c JOIN contract k ON k.id = c.contract_id WHERE c.crid = ?`).get(crid);
+  contract.includes = db.prepare(`SELECT r.contract_id || '@' || r.rev AS ref, i.mode FROM contract_include i
+                                  JOIN contract_rev r ON r.crid = i.included_crid WHERE i.crid = ? ORDER BY r.crid`).all(crid);
   const cache = new Map();
   const nano = rid => { if (!cache.has(rid)) cache.set(rid, describe(db, rid)); return cache.get(rid); };
   const ref = rid => nano(rid).ref;

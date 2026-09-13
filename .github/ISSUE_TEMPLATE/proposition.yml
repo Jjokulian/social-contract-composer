@@ -1,0 +1,48 @@
+name: Raise a doubt
+description: Test a doubt before you say “I do”. Propose a change, raise an exception to a clause, or bring a case that tests a contract.
+labels: ["needs digest"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Any doubt you have before saying “I do” to a contract can be tested in the open, and everyone can see how it is resolved. Your issue is digested into a proposal in the composer: the current contract plus what you raise, so its effect on the intents can be tested before anyone decides. Read [How to Read a Contract](https://jjokulian.github.io/social-contract-composer/guide.html) first.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Doubt (a concern you want tested)
+        - Proposition (a change to a contract)
+        - Exception (to a clause)
+        - Case (a real or conceivable case that tests the contract)
+    validations:
+      required: true
+  - type: input
+    id: contract
+    attributes:
+      label: Contract
+      description: The contract revision it concerns, as shown in the composer.
+      placeholder: pro-pregnancy@4
+    validations:
+      required: true
+  - type: textarea
+    id: proposition
+    attributes:
+      label: What you raise
+      description: The clause, exception or case, in your own words.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+  - type: textarea
+    id: touches
+    attributes:
+      label: Intents and clauses it touches
+      description: References from the composer, such as abort-only-for-fatal-risk@2 or protect-babies@1.
+  - type: textarea
+    id: open
+    attributes:
+      label: What stays open
+      description: What should remain open for learning or for later evidence.

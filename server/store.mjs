@@ -237,7 +237,7 @@ export function describe(db, rid) {
 }
 
 export function listContracts(db) {
-  return db.prepare(`SELECT c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status
+  return db.prepare(`SELECT c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c.source
                      FROM contract_rev c JOIN contract k ON k.id = c.contract_id
                      WHERE c.rev = (SELECT MAX(rev) FROM contract_rev x WHERE x.contract_id = c.contract_id)
                      ORDER BY k.scale DESC, c.title`).all();
