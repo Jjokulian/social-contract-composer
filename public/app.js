@@ -128,7 +128,7 @@ function renderReport(r) {
   const clause = ref => {
     const c = nano(ref);
     if (!c.text) return esc(humanize(ref));
-    return `<span class="modality" title="Binds: ${esc(c.roleLabel)}">${esc(c.modality)}</span> ${bindingChip(c.binding)} ${esc(c.text)}`;
+    return `<span class="modality" title="Binds: ${esc(c.roleLabel)}">${esc(c.modality)}</span> ${bindingChip(c.binding)} ${terms(esc(c.text))}`;
   };
 
   const context = c => {
@@ -159,7 +159,7 @@ function renderReport(r) {
         <span class="ref">${esc(c.ref)} · filed by ${esc(c.filedBy)}${issueLink(c.source) ? ` · from ${issueLink(c.source)}` : ''}</span>
       </div>
       ${withClause ? `<p class="clause-text" style="margin:0">${clause(c.from)}</p>` : ''}
-      <p class="rationale" style="margin:0">${esc(c.rationale)}</p>
+      <p class="rationale" style="margin:0">${terms(esc(c.rationale))}</p>
       ${context(c)}
     </div>`;
 
@@ -191,7 +191,7 @@ function renderReport(r) {
       <li class="intent" data-key="${esc([...path, node.ref].join('>'))}">
         <div class="node">
           <span class="cov ${node.coverage}">${node.coverage}</span>
-          <span class="statement">${esc(node.statement)}</span>
+          <span class="statement">${terms(esc(node.statement))}</span>
           <div class="node-meta">${flags}</div>
           ${node.influences.length ? `<p class="bears">Bears on it: ${node.influences.map(i => label(nano(i).from)).join(', ')}</p>` : ''}
           ${all.length ? `<details class="claims"><summary>${tally || 'claims'}</summary><div class="claim-list">${byClause(all)}</div></details>` : ''}
@@ -241,9 +241,9 @@ function renderReport(r) {
 
   return [
     `<header>
-      <p class="eyebrow">${esc(r.contract.scale)}-social-contract · ${esc(r.contract.status)} · ${esc(r.contract.ref)}${r.society ? ` · evaluated in ${esc(r.society)}` : ''}</p>
+      <p class="eyebrow">${r.contract.scale === 'social' ? 'milli: a composed social contract' : 'micro: a micro-social-contract'} ·${esc(r.contract.status)} · ${esc(r.contract.ref)}${r.society ? ` · evaluated in ${esc(r.society)}` : ''}</p>
       <h1 class="title">${esc(r.contract.title)}</h1>
-      <p class="thesis">${r.tree.map(n => esc(n.statement)).join(' · ')}</p>
+      <p class="thesis">${r.tree.map(n => terms(esc(n.statement))).join(' · ')}</p>
       ${r.contract.status === 'proposed' ? `<p class="proposal-note">A proposal, raised in ${issueLink(r.contract.source) || 'an issue'} and not yet granted. It composes ${r.contract.includes.map(i => `<code>${esc(i.ref)}</code>`).join(', ')} with the proposal’s own nanos, so its effect on the intents can be tested here before anyone decides. Discuss it on the issue.</p>` : ''}
       <div class="coverage-bar" role="img" aria-label="${count('claimed')} intents claimed, ${count('thin')} thin, ${count('gap')} gaps">${bar}</div>
       <div class="legend">
@@ -264,7 +264,7 @@ function renderReport(r) {
         if (!clauses.length) return '';
         const roles = [...new Set(clauses.map(c => c.roleLabel))];
         return `<div class="finding"><h3>${heading}</h3><dl class="ctx">${roles.map(role => `<dt>${esc(role)}</dt><dd>${clauses.filter(c => c.roleLabel === role)
-          .map(c => `${esc(c.text)}${kind === 'abide' ? (r.enforcement.some(e => e.clause === c.ref) ? '' : ' <span class="fails">· no one assigned to detect breaches</span>') : ''}`).join('<br>')}</dd>`).join('')}</dl></div>`;
+          .map(c => `${terms(esc(c.text))}${kind === 'abide' ? (r.enforcement.some(e => e.clause === c.ref) ? '' : ' <span class="fails">· no one assigned to detect breaches</span>') : ''}`).join('<br>')}</dd>`).join('')}</dl></div>`;
       }).join('') || empty('This composition has no clauses yet.')),
     section('disagreements', 'Disagreements', 'Claims about the same clause and intent that reach different conclusions, with the context that separates them.',
       checks.disagreements.length ? checks.disagreements.map(disagreementHtml).join('')
@@ -306,8 +306,9 @@ function renderReport(r) {
       <div class="finding"><h3>Definition clashes</h3>${checks.definitionClashes.length
         ? checks.definitionClashes.map(d => `<p style="margin:0">“${esc(d.term)}” is defined twice: ${d.definitions.map(named).join(' and ')}</p>`).join('')
         : empty('Each term has one definition.')}</div>`),
-    section('definitions', 'Definitions', 'The contract’s own terms. They hold within this contract; where a composition brings in a different definition, it shows as a clash above.',
-      `<dl class="defs">${definitions.map(d => `<div><dt>${esc(d.termLabel)} <span class="ref">${esc(d.ref)}</span></dt><dd>${esc(d.meaning)}</dd></div>`).join('')}</dl>`),
+    section('definitions', 'Picos: defined words', 'Words with a strict definition in this contract. Wherever one appears in the text above, it is underlined; hover or focus it to read the definition. Where a composition brings in a different definition of the same word, it shows as a clash above.',
+      `<dl class="defs">${definitions.map(d => `<div><dt>${esc(d.termLabel)} <span class="ref">${esc(d.ref)}</span></dt><dd>${terms(esc(d.meaning), d.ref)}</dd>
+        <dd class="forms">refers to it: ${d.forms.map(f => `“${esc(f)}”`).join(', ')}</dd></div>`).join('')}</dl>`),
   ].join('');
 }
 
@@ -373,6 +374,48 @@ function renderPanel(r) {
     `<li><a href="#${id}"><span>${label}</span><span class="n${n ? '' : ' zero'}">${n}</span></a></li>`).join('');
 }
 
+// ─── Picos: strictly defined words, underlined wherever they appear, defined on hover or focus ─
+// A word refers to a pico when it matches one of the pico's forms. Longest forms match first, whole words only.
+
+let picoPattern = null;
+const picoByForm = new Map();
+function preparePicos(r) {
+  picoByForm.clear();
+  for (const p of Object.values(r.nanos).filter(n => n.kind === 'definition'))
+    for (const form of p.forms ?? [p.termLabel]) picoByForm.set(esc(form).toLowerCase(), p);
+  const forms = [...picoByForm.keys()].sort((a, b) => b.length - a.length).map(f => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  picoPattern = forms.length ? new RegExp(`(?<![\\p{L}\\p{N}’'-])(${forms.join('|')})(?![\\p{L}\\p{N}’'-])`, 'giu') : null;
+}
+// `html` is already escaped text; `self` keeps a pico's own definition from linking to itself.
+function terms(html, self) {
+  if (!picoPattern) return html;
+  return html.replace(picoPattern, m => {
+    const p = picoByForm.get(m.toLowerCase());
+    return p && p.ref !== self ? `<span class="term" tabindex="0" data-pico="${esc(p.ref)}">${m}</span>` : m;
+  });
+}
+
+const tip = Object.assign(document.createElement('div'), { id: 'pico-tip', role: 'tooltip', hidden: true });
+document.body.append(tip);
+function showTip(el) {
+  const p = shown?.nanos[el.dataset.pico];
+  if (!p) return;
+  tip.innerHTML = `<p class="tip-term">${esc(p.termLabel)} <span class="ref">pico · ${esc(p.ref)}</span></p><p class="tip-meaning">${esc(p.meaning)}</p>`;
+  const box = el.getBoundingClientRect(), width = Math.min(380, innerWidth - 32);
+  tip.style.width = `${width}px`;
+  tip.hidden = false;
+  tip.style.left = `${Math.max(16, Math.min(box.left, innerWidth - width - 16))}px`;
+  tip.style.top = `${box.bottom + 8 + tip.offsetHeight > innerHeight ? box.top - tip.offsetHeight - 8 : box.bottom + 8}px`;
+  el.setAttribute('aria-describedby', 'pico-tip');
+}
+const hideTip = () => { tip.hidden = true; };
+document.addEventListener('mouseover', e => { const t = e.target.closest?.('.term'); if (t) showTip(t); });
+document.addEventListener('mouseout', e => { if (e.target.closest?.('.term')) hideTip(); });
+document.addEventListener('focusin', e => { const t = e.target.closest?.('.term'); if (t) showTip(t); });
+document.addEventListener('focusout', e => { if (e.target.closest?.('.term')) hideTip(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideTip(); });
+window.addEventListener('scroll', hideTip, { passive: true });
+
 // ─── The funnel: the chain from a top-level intent down to where you are reading, following as you scroll ─
 
 let shown = null;                  // the report on screen
@@ -437,6 +480,7 @@ document.addEventListener('click', e => {
 
 function render(r) {
   shown = r;
+  preparePicos(r);
   treeIndex.clear();
   const walk = n => { treeIndex.set(n.ref, n); n.children.forEach(walk); };
   r.tree.forEach(walk);
@@ -457,7 +501,7 @@ async function boot() {
   if (!contracts.some(c => c.id === state.contract)) state.contract = (contracts.find(c => c.status !== 'proposed') ?? contracts[0]).id;
 
   const contractSelect = $('#contract');
-  const option = c => `<option value="${esc(c.id)}">${esc(c.title)} (${esc(c.scale)}, ${esc(c.status)})</option>`;
+  const option = c => `<option value="${esc(c.id)}">${esc(c.title)} (${c.scale === 'social' ? 'milli' : 'micro'} · ${esc(c.status)})</option>`;
   const group = (label, list) => list.length ? `<optgroup label="${label}">${list.map(option).join('')}</optgroup>` : '';
   contractSelect.innerHTML = group('Contracts', contracts.filter(c => c.status !== 'proposed'))
     + group('Proposals', contracts.filter(c => c.status === 'proposed'));

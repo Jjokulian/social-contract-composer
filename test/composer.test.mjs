@@ -174,6 +174,8 @@ test('a social contract nests, adds, and surfaces clashes, conflicts, gaps and o
   assert.deepEqual(r.tree.map(n => n.ref), [refs.livable, refs.power, refs.quiet]);
   assert.equal(r.tree[0].children[0].ref, refs.greenStreets, 'street-trees hangs under livable-town');
   assert.deepEqual(r.checks.definitionClashes, [{ term: 'street-tree', definitions: ['street-tree@1', 'street-tree-broad@1'] }]);
+  assert.deepEqual(r.nanos['street-tree@1'].forms, ['street tree'], 'a pico with no stated forms is referred to by its term');
+  assert.deepEqual(r.nanos['street-tree-broad@1'].forms, ['street tree', 'street trees'], 'stated forms are the words that refer to it');
   assert.deepEqual(r.checks.conflicts, [{ claim: refs.treesVsCables, between: [refs.plant, refs.cables], endorsed: false }]);
   assert.deepEqual(r.checks.gaps, [refs.quiet]);
   assert.deepEqual(r.checks.orphans, [refs.party]);

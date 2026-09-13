@@ -78,8 +78,10 @@ const WRITE = {
   clause: (db, rid, b) =>
     db.prepare('INSERT INTO clause_body (rid, role_id, modality, text, binding) VALUES (?, ?, ?, ?, ?)')
       .run(rid, b.role, b.modality, b.text, b.binding ?? null),
-  definition: (db, rid, b) =>
-    db.prepare('INSERT INTO definition_body (rid, term_id, meaning) VALUES (?, ?, ?)').run(rid, b.term, b.meaning),
+  definition: (db, rid, b) => {   // a pico, with the forms that refer to it
+    db.prepare('INSERT INTO definition_body (rid, term_id, meaning) VALUES (?, ?, ?)').run(rid, b.term, b.meaning);
+    for (const form of b.forms ?? []) db.prepare('INSERT INTO definition_form (rid, form) VALUES (?, ?)').run(rid, form);
+  },
   parameter: (db, rid, b) =>
     db.prepare('INSERT INTO parameter_body (rid, label, unit_id, min, max, meaning) VALUES (?, ?, ?, ?, ?, ?)')
       .run(rid, b.label, b.unit, b.min, b.max, b.meaning),
@@ -238,8 +240,12 @@ const READ = {
                                           FROM clause_body b JOIN role r ON r.id = b.role_id WHERE b.rid = ?`).get(rid);
     return { ...c, binding: binding ?? BINDING_OF_MODALITY[c.modality], bindingStated: binding !== null };
   },
-  definition: (db, rid) => db.prepare(`SELECT b.term_id AS term, t.label AS termLabel, b.meaning
-                                       FROM definition_body b JOIN term t ON t.id = b.term_id WHERE b.rid = ?`).get(rid),
+  definition: (db, rid) => {
+    const d = db.prepare(`SELECT b.term_id AS term, t.label AS termLabel, b.meaning
+                          FROM definition_body b JOIN term t ON t.id = b.term_id WHERE b.rid = ?`).get(rid);
+    const forms = db.prepare('SELECT form FROM definition_form WHERE rid = ? ORDER BY form').pluck().all(rid);
+    return { ...d, forms: forms.length ? forms : [d.termLabel] };
+  },
   parameter: (db, rid) => db.prepare(`SELECT b.label, b.unit_id AS unit, u.label AS unitLabel, b.min, b.max, b.meaning
                                       FROM parameter_body b JOIN unit u ON u.id = b.unit_id WHERE b.rid = ?`).get(rid),
   measure: (db, rid) => db.prepare(`SELECT b.label, b.unit_id AS unit, u.label AS unitLabel, b.description

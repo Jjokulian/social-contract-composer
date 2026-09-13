@@ -105,6 +105,14 @@ CREATE TABLE IF NOT EXISTS definition_body (
   meaning TEXT NOT NULL
 ) STRICT;
 
+-- A definition is a pico: a strictly defined word. Its forms are the exact words in nanos that refer to it
+-- ("aborts", "aborting" … for abortion). With no forms stated, the term's label is the one form.
+CREATE TABLE IF NOT EXISTS definition_form (
+  rid  INTEGER NOT NULL REFERENCES definition_body(rid),
+  form TEXT    NOT NULL CHECK (form <> ''),
+  PRIMARY KEY (rid, form)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS parameter_body (
   rid     INTEGER PRIMARY KEY REFERENCES revision(rid),
   label   TEXT NOT NULL,
@@ -386,6 +394,7 @@ CREATE TRIGGER IF NOT EXISTS claim_body_immutable         BEFORE UPDATE ON claim
 CREATE TRIGGER IF NOT EXISTS evaluation_body_immutable    BEFORE UPDATE ON evaluation_body    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS influence_body_immutable     BEFORE UPDATE ON influence_body     BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS consequence_body_immutable   BEFORE UPDATE ON consequence_body   BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS definition_form_immutable    BEFORE UPDATE ON definition_form    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_breach_immutable    BEFORE UPDATE ON contract_breach    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_enforcement_immutable BEFORE UPDATE ON contract_enforcement BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_rev_immutable_u     BEFORE UPDATE ON contract_rev       BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;

@@ -33,7 +33,8 @@ export function buildFixture() {
   const water = add('water-young-trees', 'clause', { role: 'council', modality: 'shall', text: 'Water every tree for its first three summers.' });
 
   const treeNarrow = add('street-tree', 'definition', { term: 'street-tree', meaning: 'A tree planted in the public right of way.' });
-  const treeBroad = add('street-tree-broad', 'definition', { term: 'street-tree', meaning: 'Any tree visible from a street.' }, 'utility');
+  const treeBroad = add('street-tree-broad', 'definition', { term: 'street-tree', meaning: 'Any tree visible from a street.',
+    forms: ['street tree', 'street trees'] }, 'utility');
 
   const spacing = add('tree-spacing', 'parameter', { label: 'Tree spacing', unit: 'metre', min: 5, max: 30, meaning: 'Distance between street trees.' });
   const rainfall = add('annual-rainfall', 'measure', { label: 'Annual rainfall', unit: 'mm', description: 'Mean rainfall over ten years.' });

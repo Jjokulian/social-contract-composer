@@ -2,6 +2,8 @@
 
 A catalogue of **micro-social-contracts**: small agreements that each cover one area of life. Anyone can pick a set of them and combine the set into a full Social Contract for a society they want to write down.
 
+The scale: a composed Social Contract is a **milli**, made of **micros** (micro-social-contracts), made of **nanos**, which use **picos**, strictly defined words shown on hover wherever they appear.
+
 Contracts are built from **nanos**, small reusable parts stored once in one database:
 
 - **Intents** — purposes anyone can grasp directly ("To protect mothers")
