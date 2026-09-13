@@ -309,7 +309,10 @@ export function catalogue(db) {
                               FROM contract_rev c JOIN contract k ON k.id = c.contract_id ORDER BY c.crid`).all()) {
     c.intents = db.prepare('SELECT intent_rid, combine FROM contract_intent WHERE crid = ? ORDER BY position').all(c.crid)
       .map(i => ({ ref: refOf(db, i.intent_rid), combine: i.combine }));
-    c.edges = db.prepare('SELECT child_rid, parent_rid FROM contract_refines WHERE crid = ?').all(c.crid)
+    // Children in the order the contract places its intents, never in storage order (a rewritten intent is a newer row).
+    c.edges = db.prepare(`SELECT r.child_rid, r.parent_rid FROM contract_refines r
+                          JOIN contract_intent i ON i.crid = r.crid AND i.intent_rid = r.child_rid
+                          WHERE r.crid = ? ORDER BY i.position, r.parent_rid`).all(c.crid)
       .map(e => ({ child: refOf(db, e.child_rid), parent: refOf(db, e.parent_rid) }));
     c.members = db.prepare('SELECT rid FROM contract_member WHERE crid = ? ORDER BY position').pluck().all(c.crid).map(rid => refOf(db, rid));
     c.parameters = Object.fromEntries(db.prepare('SELECT parameter_rid, value FROM contract_parameter WHERE crid = ?').all(c.crid)
