@@ -20,6 +20,7 @@ import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as acorn from 'acorn';
 import { addVocabulary, addNano, addContract, reviseContract, catalogue } from './store.mjs';
+import { bindingNames, freeNames, shapeOf } from './syntax.mjs';
 import { suggest } from '../public/picos.mjs';
 
 export const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -68,11 +69,6 @@ const lineEnd = (text, at, comment) => {
   return at + (m ? m[0].length : 0);
 };
 
-const names = p => (p.type === 'Identifier' ? [p.name]
-  : p.type === 'ObjectPattern' ? p.properties.flatMap(q => names(q.type === 'RestElement' ? q.argument : q.value))
-  : p.type === 'ArrayPattern' ? p.elements.filter(Boolean).flatMap(e => names(e.type === 'RestElement' ? e.argument : e))
-  : p.type === 'AssignmentPattern' ? names(p.left) : []);
-
 function declaration(node) {
   if (node.type === 'ImportDeclaration') return { form: 'import', name: node.source.value, declares: [] };
   const inner = node.type === 'ExportNamedDeclaration' || node.type === 'ExportDefaultDeclaration' ? node.declaration : node;
@@ -80,24 +76,10 @@ function declaration(node) {
   if (inner.type === 'FunctionDeclaration' || inner.type === 'ClassDeclaration')
     return { form: inner.type === 'ClassDeclaration' ? 'class' : 'function', name: inner.id?.name ?? 'default', declares: inner.id ? [inner.id.name] : [] };
   if (inner.type === 'VariableDeclaration') {
-    const declares = inner.declarations.flatMap(d => names(d.id));
+    const declares = inner.declarations.flatMap(d => bindingNames(d.id));
     return { form: inner.kind, name: declares.join(', '), declares };
   }
   return { form: node.type === 'ExportDefaultDeclaration' ? 'export' : 'statement', name: null, declares: [] };
-}
-
-// Every identifier a piece of syntax mentions, apart from property names.
-function mentioned(node, out = new Set()) {
-  if (Array.isArray(node)) { for (const n of node) mentioned(n, out); return out; }
-  if (!node || typeof node.type !== 'string') return out;
-  if (node.type === 'Identifier') out.add(node.name);
-  for (const [key, value] of Object.entries(node)) {
-    if (!value || typeof value !== 'object') continue;
-    if (!node.computed && ((node.type === 'MemberExpression' && key === 'property')
-      || (['Property', 'MethodDefinition', 'PropertyDefinition'].includes(node.type) && key === 'key'))) continue;
-    mentioned(value, out);
-  }
-  return out;
 }
 
 function splitScript(text) {
@@ -189,7 +171,23 @@ export function split(path, text) {
   } catch (err) {
     throw new Error(`${path}: ${err.message}`);
   }
-  return units.map(u => ({ ...u, language }));
+  return withHeader(units, language).map(u => ({ ...u, language }));
+}
+
+// A file's opening comment says what the file is for. Where a blank line separates it from the first statement, it
+// becomes a unit of its own (form header), rather than belonging to that statement, usually an import.
+const TRIVIA = {
+  javascript: /^(?:\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/|#![^\n]*)*/,
+  sql: /^(?:\s+|--[^\n]*|\/\*[\s\S]*?\*\/)*/,
+  css: /^(?:\s+|\/\*[\s\S]*?\*\/)*/,
+};
+function withHeader(units, language) {
+  const first = units[0];
+  if (!TRIVIA[language] || !first || first.form === 'tail') return units;
+  let cut = 0;
+  for (const m of TRIVIA[language].exec(first.text)[0].matchAll(/\n[ \t]*\n/g)) cut = m.index + m[0].length;
+  if (!cut || cut >= first.text.length) return units;
+  return [{ form: 'header', name: null, declares: [], text: first.text.slice(0, cut) }, { ...first, text: first.text.slice(cut) }, ...units.slice(1)];
 }
 
 // ─── Identity and dependencies ───────────────────────────────────────────────
@@ -232,7 +230,7 @@ function dependencies(files) {
       }
       for (const u of f.units.filter(u => u.form !== 'import' && u.node)) {
         const ids = new Set();
-        for (const name of mentioned(u.node)) {
+        for (const name of freeNames(u.node)) {   // resolved through the unit's own scopes: locals never count
           const id = u.declares.includes(name) ? null : own.get(name) ?? imported.get(name);
           if (id && id !== u.id) ids.add(id);
         }
@@ -309,6 +307,25 @@ export function extract(db, { root = ROOT } = {}) {
       }
       unitRef.set(u.id, addNano(db, { id: u.id, kind: 'unit', form: u.form, name: u.name ?? null, language: u.language, text: u.text,
                                       depends: u.depends, picos: refs, ...by }).ref);
+      written++;
+    }
+
+    // Renames and moves: a unit gone from every current file, whose shape lives on in a current unit, is that unit renamed
+    // or moved. The move is recorded, so whatever names the old unit as implementing it follows the code.
+    const byShape = new Map();
+    for (const u of files.flatMap(f => f.units).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+      const shape = shapeOf(u.text, u.language, u.declares);
+      if (!byShape.has(shape)) byShape.set(shape, u.id);
+    }
+    const declared = u => (['const', 'let', 'var', 'function', 'class', 'table', 'view', 'trigger', 'index'].includes(u.form) && u.name ? u.name.split(', ') : []);
+    const recorded = db.prepare('SELECT 1 FROM unit_moved WHERE from_id = ?');
+    for (const id of currentUnits(contracts)) {   // the units the files held before this extraction
+      if (unitRef.has(id) || recorded.get(id)) continue;
+      const gone = nanos.get(id);
+      const shape = shapeOf(gone.text, gone.language, declared(gone));
+      const to = byShape.get(shape);
+      if (!to) continue;
+      db.prepare('INSERT INTO unit_moved (from_id, to_id, shape, source) VALUES (?, ?, ?, ?)').run(id, to, shape, by.source);
       written++;
     }
 

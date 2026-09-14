@@ -27,7 +27,7 @@ export function openStore(path = DEFAULT_PATH, { readonly = false } = {}) {
 export const APPEND_ONLY = [
   'nano', 'revision', 'intent_body', 'clause_body', 'definition_body', 'definition_form', 'nano_pico', 'nano_implementation',
   'parameter_body', 'measure_body', 'assumption_body', 'claim_body', 'claim_given', 'claim_when', 'claim_assuming', 'claim_measure',
-  'evaluation_body', 'influence_body', 'consequence_body', 'unit_body', 'unit_depends',
+  'evaluation_body', 'influence_body', 'consequence_body', 'unit_body', 'unit_depends', 'unit_moved',
   'contract', 'contract_rev', 'contract_intent', 'contract_refines', 'contract_member', 'contract_parameter', 'contract_include',
   'contract_breach', 'contract_enforcement', 'contract_socioship', 'contract_operation', 'contract_resolution', 'contract_specialis',
   'demesne', 'demesne_rev',
@@ -396,6 +396,18 @@ const READ = {
   },
 };
 
+// A unit of software as it lives on now: through every recorded rename or move (unit_moved), to the unit it became.
+const moves = new WeakMap();
+export function followMoves(db, id) {
+  if (!moves.has(db)) moves.set(db, db.prepare('SELECT to_id FROM unit_moved WHERE from_id = ?').pluck());
+  for (const seen = new Set([id]); ;) {
+    const next = moves.get(db).get(id);
+    if (!next || seen.has(next)) return id;
+    seen.add(next);
+    id = next;
+  }
+}
+
 // Everything about one nano revision, with references rendered as `id@rev`.
 export function describe(db, rid) {
   const r = db.prepare(`SELECT r.rid, r.nano_id AS id, r.rev, n.kind, r.filed_by AS filedBy, r.source, r.created_at AS createdAt
@@ -403,7 +415,7 @@ export function describe(db, rid) {
   if (!r) throw new StoreError(`no nano revision ${rid}`, 404);
   const picos = db.prepare('SELECT phrase, pico_rid FROM nano_pico WHERE rid = ? ORDER BY phrase').all(rid)
     .map(p => ({ phrase: p.phrase, pico: refOf(db, p.pico_rid) }));
-  const implementedBy = db.prepare('SELECT unit_id FROM nano_implementation WHERE rid = ? ORDER BY unit_id').pluck().all(rid);
+  const implementedBy = [...new Set(db.prepare('SELECT unit_id FROM nano_implementation WHERE rid = ?').pluck().all(rid).map(id => followMoves(db, id)))].sort();
   return { ref: `${r.id}@${r.rev}`, ...r, ...READ[r.kind](db, rid), picos, ...(implementedBy.length && { implementedBy }) };
 }
 

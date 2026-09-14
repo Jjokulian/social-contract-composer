@@ -243,6 +243,18 @@ CREATE TABLE IF NOT EXISTS nano_implementation (
   PRIMARY KEY (rid, unit_id)
 ) STRICT;
 
+-- A unit of software gone from every file, and the unit it lives on as: the same shape (server/syntax.mjs), renamed or
+-- moved. Whatever records the old unit as implementing it follows the move, as names follow content in a
+-- content-addressed codebase.
+CREATE TABLE IF NOT EXISTS unit_moved (
+  from_id    TEXT NOT NULL PRIMARY KEY REFERENCES nano(id),
+  to_id      TEXT NOT NULL REFERENCES nano(id) DEFERRABLE INITIALLY DEFERRED,
+  shape      TEXT NOT NULL,
+  source     TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+  CHECK (from_id <> to_id)
+) STRICT;
+
 -- ─── Contracts: micro-social-contracts and Social Contracts ───────────────────
 
 CREATE TABLE IF NOT EXISTS contract (

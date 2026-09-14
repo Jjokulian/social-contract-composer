@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
-import { openStore, SYSTEM_PATH } from '../server/store.mjs';
+import { openStore, catalogue, SYSTEM_PATH } from '../server/store.mjs';
 import { split, compare, extract, rebuild } from '../server/platform.mjs';
 
 test('each kind of file splits into units that join back into the file exactly', () => {
@@ -30,6 +30,9 @@ test('the platform’s store rebuilds every source file byte for byte, its rebui
   const built = rebuild(db);
   for (const path of ['server/platform.mjs', 'tools/platform.mjs', 'test/platform.test.mjs', 'store/schema.sql'])
     assert.ok(built.has(path), `${path} is in the store`);
+  const unit = id => Object.values(catalogue(db).nanos).filter(n => n.id === id).sort((a, b) => b.rev - a.rev)[0];
+  assert.ok(!unit('code.server.platform.mjs.function-sql-unit').depends.some(d => d.id === 'code.server.platform.mjs.const-head'),
+    'sqlUnit’s own local head is not the top-level head: dependencies are resolved through scopes');
 });
 
 test('extraction is a fixed point: run again on its own result, it writes nothing', () => {
