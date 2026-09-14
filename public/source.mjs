@@ -19,6 +19,7 @@ const server = store => {
     societies: () => getJSON(`api/societies${q}`),
     snapshot: id => getJSON(`api/contracts/${encodeURIComponent(id)}/snapshot${q}`),
     demesnes: () => getJSON(`api/demesnes${q}`),
+    catalogue: () => getJSON(`api/catalogue${q}`),
   };
 };
 
@@ -29,6 +30,7 @@ const baked = store => {
     societies: () => getJSON(`${dir}societies.json`),
     snapshot: id => getJSON(`${dir}snapshots/${encodeURIComponent(id)}.json`),
     demesnes: () => getJSON(`${dir}demesnes.json`),
+    catalogue: () => getJSON(`${dir}catalogue.json`),
   };
 };
 

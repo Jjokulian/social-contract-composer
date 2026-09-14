@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Levels</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <a class="brand" href="./">Social Contract Composer</a>
+    <div class="bar-controls">
+      <a class="bar-link" href="./">Contracts</a>
+      <a class="bar-link" href="graph.html">Graph</a>
+      <span class="bar-link current" aria-current="page">Levels</span>
+      <a class="bar-link" href="compose.html">Compose</a>
+      <a class="bar-link" href="globe.html">Globe</a>
+      <a class="bar-link" href="guide.html">How to read</a>
+      <label class="field">Store
+        <select id="store"></select>
+      </label>
+      <label class="field">Scope
+        <select id="scope"></select>
+      </label>
+    </div>
+  </header>
+
+  <main class="graph-layout">
+    <section class="graph-main" aria-label="Millis, micros, nanos and picos, and the relations between them">
+      <div class="graph-toolbar">
+        <fieldset class="layers" id="levels"><legend>Levels</legend></fieldset>
+        <fieldset class="layers" id="relations"><legend>Relations</legend></fieldset>
+        <div class="toolbar-end">
+          <label class="field"><input type="checkbox" id="apart"> Each revision apart</label>
+          <span class="toolbar-count" id="count"></span>
+          <button type="button" class="btn" id="fit">Fit to screen</button>
+        </div>
+      </div>
+      <div id="graph" class="graph-canvas" role="img" aria-label="Millis at the top, then micros, nanos and picos, connected by the relations shown. The panel lists a selected node's connections."></div>
+      <div class="graph-legend" aria-label="Legend">
+        <span class="lg"><span class="lg-node milli"></span>milli</span>
+        <span class="lg"><span class="lg-node micro"></span>micro</span>
+        <span class="lg"><span class="lg-node"></span>nano: intent</span>
+        <span class="lg"><span class="lg-node clause"></span>clause</span>
+        <span class="lg"><span class="lg-node measure"></span>measure</span>
+        <span class="lg"><span class="lg-node pico"></span>pico</span>
+        <span class="lg"><span class="lg-line composes"></span>includes</span>
+        <span class="lg"><span class="lg-line operates"></span>operator</span>
+        <span class="lg"><span class="lg-line precedence"></span>prevails over</span>
+        <span class="lg"><span class="lg-line uses"></span>uses a pico</span>
+        <span class="lg"><span class="lg-line supports"></span>supports</span>
+        <span class="lg"><span class="lg-line hinders"></span>hinders, conflicts, breach</span>
+        <span class="lg"><span class="lg-line through"></span>through hidden levels</span>
+      </div>
+    </section>
+    <aside class="panel graph-panel" id="details" aria-live="polite"></aside>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+  <script type="module" src="levels.js"></script>
+</body>
+</html>

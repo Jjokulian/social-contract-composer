@@ -349,6 +349,18 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 .lg-node.gap { border: 2px dotted var(--gap); }
 .lg-node.clause { border-radius: 0; background: var(--ground); }
 .lg-node.measure { border-radius: 50%; }
+.toolbar-end { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.toolbar-count { font: 12px var(--mono); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.node-link { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-align: left; }
+.node-link:hover { text-decoration: underline; }
+.lg-node.milli { width: 18px; height: 14px; border: 0; background: var(--accent); clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
+.lg-node.micro { border-width: 3px; border-color: var(--ink-2); }
+.lg-node.pico { border-color: var(--accent); clip-path: polygon(0 0, 75% 0, 100% 50%, 75% 100%, 0 100%); }
+.lg-line.composes { border-top: 3px solid var(--ink-2); }
+.lg-line.operates { border-top: 2px dashed var(--gap); }
+.lg-line.precedence { border-top: 3px solid var(--accent); }
+.lg-line.uses { border-top: 1.5px dotted var(--accent); }
+.lg-line.through { border-top: 1.5px dashed var(--rule-strong); }
 .graph-panel { position: sticky; top: calc(var(--bar-h, 52px) + 16px); max-height: calc(100vh - var(--bar-h, 52px) - 32px); overflow: auto; }
 .detail-kind { margin: 0 0 6px; font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
 .detail-text { margin: 0 0 10px; font: 17px/1.45 var(--serif); }
