@@ -8,7 +8,7 @@ import { openStore, listContracts, listDemesnes, catalogue, DEFAULT_PATH, SYSTEM
 import { snapshot } from '../server/checks.mjs';
 
 const OUT = new URL('../dist/', import.meta.url);
-const STORES = [['catalogue', DEFAULT_PATH, 'data/'], ['platform', SYSTEM_PATH, 'data/system/']];
+const STORES = [['catalogue', DEFAULT_PATH, 'data/'], ['system', SYSTEM_PATH, 'data/system/']];   // named as ?store= names them
 
 rmSync(OUT, { recursive: true, force: true });
 cpSync(new URL('../public/', import.meta.url), OUT, { recursive: true });
@@ -21,8 +21,9 @@ for (const [name, path, dir] of STORES) {
   const contracts = listContracts(db);
   write(`${dir}contracts.json`, contracts);
   write(`${dir}societies.json`, db.prepare('SELECT id, label FROM society ORDER BY label').all());
-  for (const c of contracts) write(`${dir}snapshots/${c.id}.json`, snapshot(db, c.ref));
-  write(`${dir}catalogue.json`, catalogue(db));   // every nano and contract, for composing drafts in the browser
+  const cat = catalogue(db);   // built once per store: every snapshot composes from it, and it is published as it is
+  for (const c of contracts) write(`${dir}snapshots/${c.id}.json`, snapshot(db, c.ref, cat));
+  write(`${dir}catalogue.json`, cat);   // every nano and contract, for composing drafts in the browser
   write(`${dir}demesnes.json`, listDemesnes(db)); // millis implemented on coordinate spaces; the browser computes the layers
   baked.push(`${contracts.length} ${name}`);
   db.close();

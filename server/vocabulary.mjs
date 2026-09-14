@@ -35,8 +35,8 @@ export function renderGlossary(db) {
 
 // The guide as it should be: its glossary region replaced by what the picos render.
 export function syncedGuide(db, html = readFileSync(GUIDE, 'utf8')) {
-  const start = html.indexOf(START), end = html.indexOf(END);
-  if (start < 0 || end < start) throw new Error('public/guide.html has no vocabulary region');
-  const open = html.indexOf('-->', start) + 3;
+  const start = html.indexOf(START), end = html.indexOf(END), close = html.indexOf('-->', start);
+  if (start < 0 || end < start || close < 0 || close >= end) throw new Error('public/guide.html has no vocabulary region');
+  const open = close + 3;
   return `${html.slice(0, open)}\n${renderGlossary(db)}\n          ${html.slice(end)}`;
 }

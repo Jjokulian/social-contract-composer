@@ -20,7 +20,6 @@ const usage = () => {
   process.exit(2);
 };
 const db = openStore(process.env.COMPOSER_STORE === 'system' ? SYSTEM_PATH : DEFAULT_PATH, { readonly: command !== 'relink' });
-const nanoId = ref => ref.split('@')[0];
 
 // The picos a composition defines: its definitions, at the revision the composition includes.
 function definedPicos(r) {

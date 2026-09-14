@@ -24,7 +24,7 @@ A normal server over one normalized database. Every fact is recorded once, and e
 
 | Part | Role |
 |---|---|
-| `store/schema.sql` | Tables, integrity triggers, composition views |
+| `store/schema.sql` | Tables and integrity triggers; composition is computed in `public/compose.mjs` |
 | `store/composer.sqlite` | The store. It's committed, and `tools/sqlite-dump.mjs` makes its git diffs readable |
 | `server/store.mjs` | Writes nanos and contracts in single transactions; reads them with references rendered as `id@rev` |
 | `server/checks.mjs` | Snapshots a composition: everything in scope for one contract, as plain JSON |

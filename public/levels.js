@@ -2,7 +2,7 @@
 // relations between them (public/levels.mjs computes it). Filter by level and by relation; a hidden level is crossed,
 // not cut. State lives in the URL (?store=…&scope=…&levels=…&relations=…&revisions=apart), so a view can be linked.
 import { findSource, storeOf, STORES } from './source.mjs';
-import { levelGraph, LEVELS, RELATIONS } from './levels.mjs';
+import { buildGraph, filterGraph, LEVELS, RELATIONS } from './levels.mjs';
 
 const $ = selector => document.querySelector(selector);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -119,8 +119,17 @@ function inBands() {
   cy.layout({ name: 'preset', positions: n => positions[n.id()], animate: false }).run();
 }
 
+// Incremental, as a compiler recomputes only what an edit touched: the graph for a scope is built once, and a change of
+// levels or relations only filters it.
+const built = new Map();
+function graphFor() {
+  const key = `${state.scope}|${state.revisions}`;
+  if (!built.has(key)) built.set(key, buildGraph(cat, { scope: state.scope, revisions: state.revisions }));
+  return filterGraph(built.get(key), { levels: [...state.levels], relations: [...state.relations] });
+}
+
 function draw() {
-  const g = levelGraph(cat, { scope: state.scope, levels: [...state.levels], relations: [...state.relations], revisions: state.revisions });
+  const g = graphFor();
   // Decide the layout before laying anything out: a large graph goes straight into bands, never through the flowing
   // layout first (which costs seconds on hundreds of nodes, only to be thrown away).
   const large = g.nodes.length > 40;
@@ -148,7 +157,7 @@ const PHRASE = {
   holds: () => 'holds', refines: () => 'refines', uses: () => 'uses', breaches: () => 'if breached, costs',
   claims: e => `${e.data('relation')}${e.data('strength') && e.data('relation') !== 'conflicts' ? ` (${e.data('strength')})` : ''}`,
   influences: e => (e.data('direction') ?? 'bears on').replace(/-/g, ' '), through: () => 'reaches, through hidden levels,',
-  depends: e => e.data('relation') ?? 'uses', implements: () => 'implements',
+  depends: e => e.data('relation') ?? 'uses', implements: () => 'implements', evaluates: () => 'evaluates',
 };
 const LEVEL_WORD = { milli: 'milli', micro: 'micro', nano: 'nano', pico: 'pico' };
 

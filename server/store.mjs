@@ -170,6 +170,9 @@ export const TEXT_FIELD = { intent: 'statement', clause: 'text', definition: 'me
                             influence: 'rationale', consequence: 'statement', measure: 'description', parameter: 'meaning',
                             unit: 'text' };
 
+// A phrase as a whole word or words, as picos link (public/picos.mjs): not inside a longer word; a possessive may follow.
+const wholeWord = phrase => new RegExp(`(?<![\\p{L}\\p{N}’'-])${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=(?:[’']s)?(?![\\p{L}\\p{N}’'-]))`, 'iu');
+
 // Add a revision of a nano (revision 1 creates the nano). Returns { ref, rid }.
 //   picos: [{ phrase, pico }] — the phrases in its text that refer to which pico revisions, fixed with this revision.
 //          tools/picos.mjs suggests them from the picos' forms.
@@ -185,9 +188,9 @@ export function addNano(db, { id, kind, filedBy, source, picos = [], implemented
     const rid = Number(db.prepare('INSERT INTO revision (nano_id, rev, filed_by, source) VALUES (?, ?, ?, ?)')
       .run(id, rev, filedBy, source).lastInsertRowid);
     write(db, rid, body);
-    const text = String(body[TEXT_FIELD[kind]] ?? '').toLowerCase();
+    const text = String(body[TEXT_FIELD[kind]] ?? '');
     for (const { phrase, pico } of picos) {
-      if (!text.includes(phrase.toLowerCase())) throw new StoreError(`“${phrase}” does not occur in the text of ${id}`);
+      if (!wholeWord(phrase).test(text)) throw new StoreError(`“${phrase}” does not occur as a whole word in the text of ${id}`);
       db.prepare('INSERT INTO nano_pico (rid, phrase, pico_rid) VALUES (?, ?, ?)').run(rid, phrase, resolve(db, pico, 'definition'));
     }
     for (const unit of new Set(implementedBy)) db.prepare('INSERT INTO nano_implementation (rid, unit_id) VALUES (?, ?)').run(rid, unit);
@@ -325,6 +328,8 @@ function mergeIntents(intents, additions) {
 //   segment: a GeoJSON Polygon or MultiPolygon in the space's frame
 export function addDemesne(db, { id, name, milli, space, segment, filedBy, source }) {
   checkSegment(segment);
+  if (space === 'earth' && (segment.type === 'Polygon' ? [segment.coordinates] : segment.coordinates).flat(2).some(([x, y]) => Math.abs(x) > 180 || Math.abs(y) > 90))
+    throw new StoreError('not a segment of Earth: longitude lies within ±180° and latitude within ±90°');
   return db.transaction(() => {
     db.prepare('INSERT INTO demesne (id) VALUES (?) ON CONFLICT (id) DO NOTHING').run(id);
     const rev = db.prepare('SELECT COALESCE(MAX(rev), 0) + 1 FROM demesne_rev WHERE demesne_id = ?').pluck().get(id);

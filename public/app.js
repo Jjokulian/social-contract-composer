@@ -76,8 +76,11 @@ function fail(message) {
 
 // ─── Rendering helpers ───────────────────────────────────────────────────────
 
+// A name from an id, where a nano has no words to show. Catalogue ids end in their contract (fatal-risk.pro-pregnancy);
+// the platform's begin with their service (demesnes.compute-nesting), so there the last part is the name.
 const humanize = ref => {
-  const id = String(ref).split('@')[0].replace(/\.[a-z0-9-]+$/, '').replace(/-/g, ' ');
+  const parts = String(ref).split('@')[0].split('.');
+  const id = (state.store === 'system' ? parts.at(-1) : parts.length > 1 ? parts.slice(0, -1).join('.') : parts[0]).replace(/-/g, ' ');
   return id.charAt(0).toUpperCase() + id.slice(1);
 };
 

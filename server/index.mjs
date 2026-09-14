@@ -16,7 +16,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore, listContracts, catalogue, describe, resolve, addNano, addContract, addDemesne, listDemesnes, StoreError,
-         SYSTEM_PATH } from './store.mjs';
+         DEFAULT_PATH, SYSTEM_PATH } from './store.mjs';
 import { report, snapshot } from './checks.mjs';
 import { layering, stackAt } from '../public/space.mjs';
 
@@ -29,9 +29,9 @@ const TYPES = {
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
 };
 
-// The catalogue of contracts, and the platform's own structure in the same schema.
-const stores = { catalogue: openStore(), system: openStore(SYSTEM_PATH) };
-const storeOf = query => {
+// The catalogue of contracts, and the platform's own structure in the same schema: read-only unless writes are on.
+const stores = { catalogue: openStore(DEFAULT_PATH, { readonly: !WRITES }), system: openStore(SYSTEM_PATH, { readonly: !WRITES }) };
+const storeFor = query => {
   const name = query.get('store') ?? 'catalogue';
   if (!Object.hasOwn(stores, name)) throw new StoreError(`no store ${name}: use ${Object.keys(stores).join(' or ')}`, 404);
   return stores[name];
@@ -52,8 +52,10 @@ const routes = [
   { method: 'GET', path: /^\/api\/nanos\/([^/]+)$/, run: ({ db, params: [ref] }) => describe(db, resolve(db, ref)) },
   { method: 'GET', path: /^\/api\/demesnes$/, run: ({ db }) => listDemesnes(db) },
   { method: 'GET', path: /^\/api\/spaces\/([^/]+)\/layering$/, run: ({ db, params: [space], query }) => {
+    const at = query.get('at') ? query.get('at').split(',').map(Number) : null;
+    if (at && (at.length !== 2 || !at.every(Number.isFinite))) throw new StoreError('at takes two numbers, x and y: ?at=12.5,55.6', 400);
     const all = layering(listDemesnes(db).demesnes, space);
-    return query.get('at') ? stackAt(all, query.get('at').split(',').map(Number)) : all;
+    return at ? stackAt(all, at) : all;
   } },
   { method: 'POST', path: /^\/api\/nanos$/, writes: true, run: ({ db, body }) => addNano(db, body) },
   { method: 'POST', path: /^\/api\/contracts$/, writes: true, run: ({ db, body }) => addContract(db, body) },
@@ -67,7 +69,10 @@ const send = (res, status, data) => {
 
 const readBody = req => new Promise((ok, fail) => {
   let data = '';
-  req.on('data', chunk => { data += chunk; if (data.length > 1e6) fail(new StoreError('request body is over 1 MB', 413)); });
+  req.on('data', chunk => {
+    data += chunk;
+    if (data.length > 1e6) { fail(new StoreError('request body is over 1 MB', 413)); req.destroy(); }   // stop reading it
+  });
   req.on('end', () => ok(data));
   req.on('error', fail);
 });
@@ -94,10 +99,10 @@ createServer(async (req, res) => {
     if (route.writes && !WRITES) return send(res, 403, { error: 'Writes are off. Start the server with COMPOSER_ALLOW_WRITES=1 to allow them.' });
     const body = req.method === 'POST' ? JSON.parse((await readBody(req)) || '{}') : null;
     const params = route.path.exec(url.pathname).slice(1).map(decodeURIComponent);
-    send(res, req.method === 'POST' ? 201 : 200, route.run({ params, query: url.searchParams, body, db: storeOf(url.searchParams) }));
+    send(res, req.method === 'POST' ? 201 : 200, route.run({ params, query: url.searchParams, body, db: storeFor(url.searchParams) }));
   } catch (err) {
     const status = err instanceof StoreError || err.status ? err.status
-      : err instanceof SyntaxError || String(err.code).startsWith('SQLITE_CONSTRAINT') ? 400
+      : err instanceof SyntaxError || err instanceof URIError || String(err.code).startsWith('SQLITE_CONSTRAINT') ? 400   // a malformed body or address
       : 500;
     if (status === 500) console.error(err);
     send(res, status, { error: err.message });

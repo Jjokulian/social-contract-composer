@@ -7,10 +7,10 @@ import { evaluate } from '../public/evaluate.mjs';
 export { evaluate, jointlyImpossible, compareContexts } from '../public/evaluate.mjs';
 export { compose } from '../public/compose.mjs';
 
-export function snapshot(db, contractRef) {
+// A contract's snapshot. Pass the store's catalogue when composing many, so it is built once, not once per snapshot.
+export function snapshot(db, contractRef, cat = catalogue(db)) {
   const crid = resolveContract(db, contractRef);
   const ref = db.prepare("SELECT contract_id || '@' || rev FROM contract_rev WHERE crid = ?").pluck().get(crid);
-  const cat = catalogue(db);
   return compose(cat, cat.contracts[ref]);
 }
 

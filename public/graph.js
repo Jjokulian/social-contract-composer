@@ -155,7 +155,7 @@ function clear() {
   cy.elements().removeClass('faded focus');
   $('#details').innerHTML = `
     <section><h2>How to read the graph</h2>
-      <p class="detail-note">Everything flows upward into the top intents. An intent’s border shows its coverage: solid for claimed, dashed for thin, dotted for a gap. Below the intents sit the clauses that serve them; a thick line is a sufficient claim, a dashed one a contributing claim, a red one hinders. Measures and influences sit further down.</p>
+      <p class="detail-note">Everything flows upward into the top intents. An intent’s border shows its coverage: solid for claimed, dashed for thin, dotted for a gap. Below the intents sit the clauses that serve them; a thick line is a sufficient claim, a dashed one a contributing claim, a red one hinders. Measures and influences sit further down, consequences of breach hang below the clauses they follow, and picos, the defined words, below the nanos that use them.</p>
       <p class="detail-note">Click a node to see its neighbourhood and details. Scroll to zoom, drag to move. The same content is listed in the <a href="./?${query(report.contract.id)}">Contracts view</a>.</p>
     </section>`;
 }
@@ -171,7 +171,7 @@ function select(n) {
   const claimLine = (c, other) => line(`${c.relation} · ${c.strength}`, short((report.nanos[other] ?? {}).text ?? (report.nanos[other] ?? {}).statement ?? other, 110),
     `${c.active ? '' : ' <em>(does not apply)</em>'}${c.endorsed ? '' : ' <em>(not endorsed)</em>'}`);
   let body = '';
-  if (d.kind === 'intent') {
+  if (d.kind === 'intent' && treeNodes.has(d.id)) {
     const t = treeNodes.get(d.id);
     body = `<p class="detail-kind"><span class="cov ${t.coverage}">${t.coverage}</span></p>
       <p class="detail-text">${esc(nano.statement)}</p>
@@ -185,10 +185,11 @@ function select(n) {
       ${claimsFrom.length ? `<h3 class="detail-h">It is claimed to</h3><ul class="detail-list">${claimsFrom.map(c => claimLine(c, c.to)).join('')}</ul>` : ''}
       ${breach ? `<h3 class="detail-h">If breached</h3><ul class="detail-list">${breach.consequences.map(q => line('consequence', report.nanos[q]?.statement ?? q)).join('')}</ul>` : ''}`;
   } else if (d.kind === 'pico') {
-    body = `<p class="detail-kind">pico · defined word</p><p class="detail-text">${esc(nano.termLabel)}</p>
-      <p class="detail-note">${esc(nano.meaning)}</p><p class="detail-note">Referred to by: ${nano.forms.map(f => `“${esc(f)}”`).join(', ')}</p>`;
+    body = `<p class="detail-kind">pico · defined word</p><p class="detail-text">${esc(nano.termLabel ?? d.label)}</p>
+      <p class="detail-note">${esc(nano.meaning ?? 'This pico’s definition is not part of this contract’s data.')}</p>
+      ${nano.forms ? `<p class="detail-note">Referred to by: ${nano.forms.map(f => `“${esc(f)}”`).join(', ')}</p>` : ''}`;
   } else {
-    const infl = report.influences.map(ref => report.nanos[ref]).filter(i => i.from === d.id || i.to === d.id);
+    const infl = report.influences.map(ref => report.nanos[ref]).filter(i => i && (i.from === d.id || i.to === d.id));
     body = `<p class="detail-kind">${esc(d.kind)}</p><p class="detail-text">${esc(nano.label ?? nano.statement ?? d.label)}</p>
       ${nano.description ? `<p class="detail-note">${esc(nano.description)}</p>` : ''}
       ${infl.length ? `<h3 class="detail-h">Influences</h3><ul class="detail-list">${infl.map(i => line(i.direction.replace(/-/g, ' '),

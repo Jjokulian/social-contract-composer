@@ -1,4 +1,4 @@
-// Example demesnes for the Globe, shown while a space has none of its own. They are not in the catalogue and their
+// Example demesnes for the Globe, shown on Earth while it has none of its own. They are not in the catalogue and their
 // millis don't exist: they only show how demesnes nest. A defensive military demesne is segmented exhaustively into
 // four cultural demesnes; within those lie islands of others, and within one island, another.
 // Placed in the open Atlantic, so no real place is implied.

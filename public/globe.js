@@ -79,7 +79,8 @@ function compute() {
 
 const cueOf = ref => {
   const c = cues.get(ref);
-  return c && { kind: PATTERNS[c.pattern % PATTERNS.length], hex: COLOURS[c.colour % COLOURS.length] };
+  // Map colouring can need a fifth colour; rather than wrap onto a neighbour's, a fifth or later one is drawn dashed.
+  return c && { kind: PATTERNS[c.pattern % PATTERNS.length], hex: COLOURS[c.colour % COLOURS.length], dashed: c.colour >= COLOURS.length };
 };
 
 // ─── The globe ───────────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ function features() {
     features: layered.filter(d => cues.has(d.ref)).map(d => {
       const cue = cueOf(d.ref), image = `${cue.kind}-${cue.hex.slice(1)}`;
       if (!map.hasImage(image)) map.addImage(image, pattern(cue.kind, cue.hex));
-      return { type: 'Feature', geometry: d.segment, properties: { ref: d.ref, depth: d.depth, image, line: cue.hex } };
+      return { type: 'Feature', geometry: d.segment, properties: { ref: d.ref, depth: d.depth, image, line: cue.hex, dashed: cue.dashed } };
     }),
   };
 }
@@ -115,8 +116,10 @@ function addDemesnes() {
   map.addSource('demesnes', { type: 'geojson', data: features() });
   map.addLayer({ id: 'demesne-fill', type: 'fill', source: 'demesnes', layout: { 'fill-sort-key': ['get', 'depth'] },
                  paint: { 'fill-pattern': ['get', 'image'] } });
-  map.addLayer({ id: 'demesne-line', type: 'line', source: 'demesnes', layout: { 'line-sort-key': ['get', 'depth'] },
+  map.addLayer({ id: 'demesne-line', type: 'line', source: 'demesnes', filter: ['!', ['get', 'dashed']], layout: { 'line-sort-key': ['get', 'depth'] },
                  paint: { 'line-color': ['get', 'line'], 'line-width': 1.5 } });
+  map.addLayer({ id: 'demesne-line-dashed', type: 'line', source: 'demesnes', filter: ['get', 'dashed'], layout: { 'line-sort-key': ['get', 'depth'] },
+                 paint: { 'line-color': ['get', 'line'], 'line-width': 2.5, 'line-dasharray': [2, 1.5] } });
 }
 
 function placeMarker() {
@@ -195,6 +198,7 @@ function layersHtml() {
       <select id="by"><option value="level">nesting level</option><option value="milli">milli</option></select>
     </label>
     ${layers.length ? `<ul class="layer-toggles">${rows}</ul>` : '<p class="empty">Layers appear once there are demesnes.</p>'}
+    ${shown.length > PATTERNS.length ? `<p class="detail-note">More than ${PATTERNS.length} layers are shown, so their patterns repeat: hide some to tell them apart.</p>` : ''}
     ${state.space === 'earth' ? `<label class="example-toggle"><input type="checkbox" id="example"${showingExample() ? ' checked' : ''}> Show the example demesnes</label>` : ''}
   </section>`;
 }

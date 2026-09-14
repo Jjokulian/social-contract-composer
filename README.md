@@ -26,7 +26,7 @@ npm start          # http://127.0.0.1:8800 — set PORT to change it
 npm test
 ```
 
-The API is read-only by default. `COMPOSER_ALLOW_WRITES=1 npm start` enables `POST /api/nanos` and `POST /api/contracts`.
+The API is read-only by default, and the server opens the stores read-only. `COMPOSER_ALLOW_WRITES=1 npm start` enables `POST /api/nanos`, `POST /api/contracts` and `POST /api/demesnes`. Every route reads the catalogue, or with `?store=system` the platform's own store.
 
 ### Static build (GitHub Pages)
 
@@ -40,7 +40,8 @@ npm run build:static   # writes dist/: the client, plus one snapshot per contrac
 |---|---|
 | Contracts, societies, the full composition report | Works: baked snapshots, evaluated in the browser |
 | Parameter sliders and societies | Works: evaluated in the browser, at any value |
-| `GET /api/nanos/:ref`, `/report`, `/snapshot` | Server only: the page doesn't call them |
+| `/snapshot`, `/catalogue`, `/demesnes` | Baked into `dist/data/`, and `dist/data/system/` for the platform's store; the pages read them from the server when there is one |
+| `GET /api/nanos/:ref`, `/report`, `/spaces/:space/layering` | Server only: the pages don't call them |
 | Writing nanos and contracts | Server only: a static host can't record shared state |
 
 ### Git diffs of the store
@@ -54,7 +55,7 @@ git config diff.sqlite.textconv "node tools/sqlite-dump.mjs"
 ## Layout
 
 ```
-store/schema.sql         tables, integrity triggers and composition views
+store/schema.sql         tables and integrity triggers (composition is computed in public/compose.mjs)
 store/composer.sqlite    the store: every nano, claim and contract
 server/store.mjs         read and write nanos and contracts
 server/checks.mjs        snapshot a composition out of the store

@@ -369,6 +369,9 @@ pre.code {
 .lg-line.precedence { border-top: 3px solid var(--accent); }
 .lg-line.uses { border-top: 1.5px dotted var(--accent); }
 .lg-line.through { border-top: 1.5px dashed var(--rule-strong); }
+.lg-line.implements { border-top: 1.5px dashed var(--claimed); }
+.lg-node.consequence { border-color: var(--gap); clip-path: polygon(20% 0, 80% 0, 100% 30%, 100% 70%, 80% 100%, 20% 100%, 0 70%, 0 30%); }
+.lg-node.unit { font-family: var(--mono); border-style: dotted; }
 .graph-panel { position: sticky; top: calc(var(--bar-h, 52px) + 16px); max-height: calc(100vh - var(--bar-h, 52px) - 32px); overflow: auto; }
 .detail-kind { margin: 0 0 6px; font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
 .detail-text { margin: 0 0 10px; font: 17px/1.45 var(--serif); }

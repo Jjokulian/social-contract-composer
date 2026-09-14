@@ -31,6 +31,17 @@ export function checkSegment(g) {
       if (a[0] !== z[0] || a[1] !== z[1]) fail('every ring must end where it starts');
     }
   }
+  // Simple rings, holes inside their outer ring: nesting, shares and stacking all assume them.
+  for (const poly of polygons) {
+    for (const ring of poly) {
+      const edges = edgesOf(ring);
+      for (let i = 0; i < edges.length; i++)
+        for (let j = i + 2; j < edges.length; j++)
+          if (!(i === 0 && j === edges.length - 1) && crosses(edges[i], edges[j])) fail('a ring crosses itself');
+    }
+    const outer = { type: 'Polygon', coordinates: [poly[0]] };
+    for (const hole of poly.slice(1)) if (hole.slice(0, -1).some(p => locate(p, outer) < 0)) fail('a hole lies outside its ring');
+  }
   return g;
 }
 

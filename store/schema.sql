@@ -515,6 +515,11 @@ WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.nano_rid) = 'intent'
   OR (SELECT kind FROM revision_kind WHERE rid = NEW.replacement_rid) = 'intent'
 BEGIN SELECT RAISE(ABORT, 'operators act on provisions; an intent is changed by a new revision of the contract'); END;
 
+CREATE TRIGGER IF NOT EXISTS contract_specialis_kind BEFORE INSERT ON contract_specialis
+WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.special_rid) NOT IN ('clause', 'definition')
+  OR (SELECT kind FROM revision_kind WHERE rid = NEW.general_rid) NOT IN ('clause', 'definition')
+BEGIN SELECT RAISE(ABORT, 'lex specialis compares provisions: clauses or definitions'); END;
+
 CREATE TRIGGER IF NOT EXISTS contract_operation_immutable  BEFORE UPDATE ON contract_operation  BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_resolution_immutable BEFORE UPDATE ON contract_resolution BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_specialis_immutable  BEFORE UPDATE ON contract_specialis  BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
