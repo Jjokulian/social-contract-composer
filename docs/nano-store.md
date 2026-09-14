@@ -87,6 +87,14 @@ An **influence** records that one measure *raises*, *lowers*, *bears on* or *sta
 - **Tensions** — clauses that support one intent and hinder another.
 - **Disagreements** — with their context diff and class.
 
+## The platform's own store
+
+All content is one database (`store/composer.sqlite`); the platform's own structure is another (`store/system.sqlite`), in the same schema, read by the same tools. In software terms a pico is a logical unit, a nano a functional unit, a micro a service, a milli an application, and a demesne its implementation on real machines.
+
+The system store holds the composer's vocabulary as picos (the `vocabulary` micro), included as the base of the `social-contract-composer` milli. The guide's glossary is rendered from them (`tools/vocabulary.mjs`), and a test fails if the two differ, so a word is changed once, as a new pico revision, never by editing text around the repository. The authors' own definitions came over verbatim from the catalogue with their attribution; the rest are drafted from their words and filed by `claude-draft`.
+
+Definitions refer to one another in cycles, so pinned references among them can't all be current at once. A contract keeps the meaning it was written with, because signatures rest on it; the platform's own copy has no signatures, so it renders each linked word with its pico's latest revision.
+
 ## Operators and resolution
 
 A composition acts on what it includes with the operators Roman law named: it **abrogates** a whole included contract, **derogates** one of its nanos, **subrogates** a nano into it, or **obrogates** one of its nanos with another (`contract_operation`, optionally citing the nano whose words make the operation). Rogation and nesting are `contract_include`, where one include can be marked the **base**. Nothing is deleted: the composition shows what each operator acts on, struck through. Operators can't act on intents; an intent changes by a new revision of the contract.

@@ -31,3 +31,7 @@ A **pico** is a strictly defined word. It is stored as a `definition` nano with 
 
    It also lists suggestions that weren't recorded and look-alike words, for you to review.
 4. `npm test` and `npm run build:static`.
+
+## The composer's own words
+
+The platform's vocabulary (pico, milli, demesne, deme, the operators and maxims…) is kept the same way, in `store/system.sqlite`, and the guide's glossary is rendered from it. Run the commands above with `COMPOSER_STORE=system` (the contract is `vocabulary`), then `node tools/vocabulary.mjs render`. Never edit the glossary in `public/guide.html` by hand; a test fails if it differs from the picos.

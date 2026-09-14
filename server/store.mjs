@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { checkSegment } from '../public/space.mjs';
 
 export const DEFAULT_PATH = fileURLToPath(new URL('../store/composer.sqlite', import.meta.url));
+// The platform's own structure (its vocabulary, and in time its requirements and deployments), in the same schema.
+export const SYSTEM_PATH = fileURLToPath(new URL('../store/system.sqlite', import.meta.url));
 const SCHEMA = readFileSync(new URL('../store/schema.sql', import.meta.url), 'utf8');
 
 export class StoreError extends Error {

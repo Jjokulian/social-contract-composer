@@ -7,7 +7,9 @@
 //                                                      look-alikes, and forms shared by two picos (exits 1 on any)
 //   node tools/picos.mjs relink  <contract> [author]   write new revisions so every nano records the references its picos
 //                                                      suggest; text never changes; others' claims are never detached
-import { openStore, catalogue, TEXT_FIELD, DEFAULT_PATH } from '../server/store.mjs';
+//
+// COMPOSER_STORE=system runs any of these on the platform's own store (store/system.sqlite) instead of the catalogue.
+import { openStore, catalogue, TEXT_FIELD, DEFAULT_PATH, SYSTEM_PATH } from '../server/store.mjs';
 import { report } from '../server/checks.mjs';
 import { relinkContract } from '../server/relink.mjs';
 import { picoMatcher, suggest, nearMisses } from '../public/picos.mjs';
@@ -17,7 +19,7 @@ const usage = () => {
   console.error('usage: node tools/picos.mjs list [contract] | suggest <contract> "<text>" | check <contract> | relink <contract> [author]');
   process.exit(2);
 };
-const db = openStore(DEFAULT_PATH, { readonly: command !== 'relink' });
+const db = openStore(process.env.COMPOSER_STORE === 'system' ? SYSTEM_PATH : DEFAULT_PATH, { readonly: command !== 'relink' });
 const nanoId = ref => ref.split('@')[0];
 
 // The picos a composition defines: its definitions, at the revision the composition includes.

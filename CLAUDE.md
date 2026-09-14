@@ -5,6 +5,7 @@ A composer of social contracts. The scale: a **milli** is a composed Social Cont
 ## Where things are
 
 - `store/composer.sqlite`: the store, and the only copy of the data. `store/schema.sql` has the schema and integrity triggers.
+- `store/system.sqlite`: the platform's own store, in the same schema: the composer's vocabulary (the `vocabulary` micro) and the `social-contract-composer` application milli. In software terms a pico is a logical unit, a nano a functional unit, a micro a service, a milli an application and a demesne its implementation.
 - `server/store.mjs`: read and write nanos and contracts; `reviseContract` derives a contract's next revision from its current one.
 - `public/compose.mjs`, `public/evaluate.mjs`, `public/picos.mjs`: pure modules shared by the server, the static build and the browser.
 - `tools/build-static.mjs` + `.github/workflows/pages.yml`: the GitHub Pages site, deployed on every push to `main`.
@@ -20,4 +21,5 @@ A composer of social contracts. The scale: a **milli** is a composed Social Cont
 - **Don't invent means.** An intent the authors haven't given clauses for stays a visible gap; ask instead of filling it.
 - **Keep one-off revision scripts out of the repo.** The store is the record; describe each revision in its commit message.
 - **Write with picos.** A nano records which picos its words refer to when it is written, and that never changes. A new or revised pico doesn't change existing nanos; to adopt it, write new revisions of them. Whenever you write or revise text in the store, follow `.claude/skills/write-with-picos/SKILL.md`.
+- **The composer's words live in the system store.** The guide's glossary is rendered from the vocabulary picos in `store/system.sqlite`; never edit it by hand. To change a word, write a new revision of its pico there, relink (`COMPOSER_STORE=system node tools/picos.mjs relink vocabulary`), and run `node tools/vocabulary.mjs render`.
 - Before committing: `npm test` and `npm run build:static`.
