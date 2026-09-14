@@ -22,6 +22,7 @@ import * as acorn from 'acorn';
 import { addVocabulary, addNano, addContract, reviseContract, catalogue } from './store.mjs';
 import { bindingNames, freeNames, shapeOf } from './syntax.mjs';
 import { suggest } from '../public/picos.mjs';
+import { latestById } from '../public/common.mjs';
 
 export const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const EXCLUDED = [/\.sqlite$/, /^cresume\.txt$/, /^dist\//];   // outputs, and a personal note: not the software
@@ -33,20 +34,21 @@ export const SERVICES = [
   ['composition', 'Composition and evaluation', ['public/compose.mjs', 'public/evaluate.mjs', 'public/explain.mjs', 'server/checks.mjs']],
   ['picos', 'Writing with picos', ['public/picos.mjs', 'server/relink.mjs', 'tools/picos.mjs']],
   ['vocabulary', 'Rendering the vocabulary', ['server/vocabulary.mjs', 'tools/vocabulary.mjs']],
-  ['platform', 'The platform as data', ['server/platform.mjs', 'tools/platform.mjs', 'server/digest.mjs', 'tools/digest.mjs']],
+  ['platform', 'The platform as data', ['server/platform.mjs', 'server/syntax.mjs', 'tools/platform.mjs', 'server/digest.mjs', 'tools/digest.mjs']],
   ['server', 'The server and its data sources', ['server/index.mjs', 'public/source.mjs']],
   ['contracts-view', 'The Contracts view', ['public/index.html', 'public/app.js']],
   ['graph-view', 'The Graph view', ['public/graph.html', 'public/graph.js']],
   ['levels-view', 'The Levels view', ['public/levels.html', 'public/levels.js', 'public/levels.mjs']],
   ['composer', 'The graphical composer', ['public/compose.html', 'public/composer.js']],
   ['demesnes', 'Demesnes and the Globe', ['public/space.mjs', 'public/globe.html', 'public/globe.js', 'public/example-demesnes.mjs']],
+  ['shared', 'Shared helpers', ['public/common.mjs']],
   ['guide', 'The reading guide and the style', ['public/guide.html', 'public/style.css']],
   ['publishing', 'Publishing', ['tools/build-static.mjs', '.github/workflows/pages.yml', '.github/ISSUE_TEMPLATE/proposition.yml', '.gitignore']],
   ['tests', 'Tests', [/^test\//]],
-  ['docs', 'Documentation', ['README.md', 'CLAUDE.md', 'docs/nano-store.md', 'micro-social-contracts/README.md', '.claude/skills/write-with-picos/SKILL.md']],
+  ['docs', 'Documentation', ['README.md', 'CLAUDE.md', 'docs/nano-store.md', 'docs/composition.md', 'micro-social-contracts/README.md', '.claude/skills/write-with-picos/SKILL.md']],
   ['package', 'The package', ['package.json', 'package-lock.json']],
 ];
-const serviceOf = path => SERVICES.find(([, , files]) => files.some(f => (f instanceof RegExp ? f.test(path) : f === path)))?.[0] ?? 'other';
+export const serviceOf = path => SERVICES.find(([, , files]) => files.some(f => (f instanceof RegExp ? f.test(path) : f === path)))?.[0] ?? 'other';
 
 // ─── Files ───────────────────────────────────────────────────────────────────
 
@@ -192,7 +194,7 @@ function withHeader(units, language) {
 
 // ─── Identity and dependencies ───────────────────────────────────────────────
 
-const slug = s => String(s).replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+const slug = s => String(s).replace(/\$/g, '-dollar-').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()   // $ is a name too
   .replace(/[^a-z0-9.]+/g, '-').replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '').slice(0, 60) || 'unit';
 const pathId = path => slug(path.replace(/\//g, '.'));
 export const fileId = path => `file.${pathId(path)}`;
@@ -273,7 +275,6 @@ export const carried = c => (c ? {
 } : {});
 
 const head = root => { try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(); } catch { return 'no commit'; } };
-const latestOf = list => { const by = new Map(); for (const x of list) if (!by.has(x.id) || by.get(x.id).rev < x.rev) by.set(x.id, x); return by; };
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const dependsKey = list => JSON.stringify([...list].sort(byTarget).map(d => [d.id, d.relation]));
 const picosKey = list => JSON.stringify(list.map(p => `${p.phrase}>${String(p.pico).split('@')[0]}`).sort());
@@ -289,7 +290,7 @@ export function extract(db, { root = ROOT } = {}) {
     addVocabulary(db, 'author', ...AUTHOR);
     const by = { filedBy: AUTHOR[0], source: `the repository at ${head(root)} and its working tree` };
     const cat = catalogue(db);
-    const nanos = latestOf(Object.values(cat.nanos)), contracts = latestOf(Object.values(cat.contracts));
+    const nanos = latestById(Object.values(cat.nanos)), contracts = latestById(Object.values(cat.contracts));
     // The picos units may use: the vocabulary's words, and the logical units digested into the services.
     const vocabulary = contracts.get('vocabulary');
     const picos = heldPicos(contracts, nanos).map(p => ({ ref: p.ref, forms: p.forms }));
@@ -374,7 +375,7 @@ export function extract(db, { root = ROOT } = {}) {
 export function rebuild(db) {
   const cat = catalogue(db);
   const files = new Map();
-  for (const c of latestOf(Object.values(cat.contracts)).values())
+  for (const c of latestById(Object.values(cat.contracts)).values())
     if (c.id.startsWith('file.') && c.status !== 'retired') files.set(c.title, c.members.map(ref => cat.nanos[ref].text).join(''));
   return files;
 }

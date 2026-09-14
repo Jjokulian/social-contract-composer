@@ -4,9 +4,8 @@ import { evaluate } from './evaluate.mjs';
 import { picoMatcher } from './picos.mjs';
 import { findSource, storeOf, STORES } from './source.mjs';
 import { coverageReason } from './explain.mjs';
+import { $, esc, short, latestById } from './common.mjs';
 
-const $ = (selector, root = document) => root.querySelector(selector);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const OPS = { '<': '<', '<=': '≤', '>': '>', '>=': '≥', '=': '=' };
 const STATUS = {
   applies: 'applies',
@@ -257,10 +256,7 @@ function renderReport(r) {
 
   const outside = Object.values(r.claims).filter(c => !c.endorsed);
   // Each word once, at its latest revision in the composition; older revisions still in use are reported under Structure.
-  const latestWord = new Map();
-  for (const n of Object.values(r.nanos))
-    if (n.kind === 'definition' && (!latestWord.has(n.id) || latestWord.get(n.id).rev < n.rev)) latestWord.set(n.id, n);
-  const definitions = [...latestWord.values()];
+  const definitions = [...latestById(Object.values(r.nanos).filter(n => n.kind === 'definition')).values()];
   const { checks } = r;
   const { clashes, stale } = revisionFindings(r);
 
@@ -479,7 +475,6 @@ window.addEventListener('scroll', hideTip, { passive: true });
 
 let shown = null;                  // the report on screen
 const treeIndex = new Map();       // ref → node; an intent with two parents is one node
-const short = (s, max = 60) => (s = String(s ?? '')).length > max ? `${s.slice(0, max - 1)}…` : s;
 
 function updateFunnel() {
   const funnel = $('#funnel'), trail = $('#trail');

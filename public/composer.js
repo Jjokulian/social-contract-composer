@@ -3,27 +3,23 @@
 // browser; "Submit as a doubt" opens a pre-filled GitHub issue, which is digested into a proposal everyone can see.
 import { compose } from './compose.mjs';
 import { evaluate } from './evaluate.mjs';
+import { $, esc, short, nanoId, latestById } from './common.mjs';
+import { findSource, storeOf, STORES } from './source.mjs';
 
 const REPO = 'https://github.com/Jjokulian/social-contract-composer';
-const KEY = 'composer-draft-v1';
-const $ = (selector, root = document) => root.querySelector(selector);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const short = (s, max = 90) => (s = String(s ?? '')).length > max ? `${s.slice(0, max - 1)}…` : s;
+// The store the address names; each store keeps its own draft, since a draft names contracts only its store holds.
+const STORE = storeOf(location.search);
+const KEY = STORE === 'catalogue' ? 'composer-draft-v1' : `composer-draft-v1.${STORE}`;
 
 let cat, draft;
 
 // ─── Catalogue ───────────────────────────────────────────────────────────────
 
-async function getJSON(path) {
-  const res = await fetch(path, { cache: 'no-cache' });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? `${res.status} ${path}`);
-  return body;
-}
-// With a server, read the live catalogue; on a static host, the one baked at build time.
-const loadCatalogue = () => getJSON('api/config').then(() => getJSON('api/catalogue'), () => getJSON('data/catalogue.json'));
+// The catalogue of the store the address names, read through public/source.mjs like every page: live from the server,
+// or baked at build time on a static host.
+const loadCatalogue = async () => (await findSource(STORE)).catalogue();
 
-const latest = list => { const by = new Map(); for (const x of list) if (!by.has(x.id) || by.get(x.id).rev < x.rev) by.set(x.id, x); return [...by.values()]; };
+const latest = list => [...latestById(list).values()];
 const latestContracts = () => latest(Object.values(cat.contracts)).filter(c => c.status !== 'retired');
 const latestNanos = kind => latest(Object.values(cat.nanos).filter(n => n.kind === kind));
 const everything = () => ({ ...cat.nanos, ...draft.nanos });
@@ -66,11 +62,10 @@ function save() {
 }
 
 const ensureIntent = ref => { if (!draft.intents.some(i => i.ref === ref)) draft.intents.push({ ref, combine: 'all' }); };
-const contractId = ref => String(ref).split('@')[0];
 
 const ops = {
   addContract(ref, under = null) {
-    draft.includes = draft.includes.filter(i => contractId(i.ref) !== contractId(ref));   // one revision per contract
+    draft.includes = draft.includes.filter(i => nanoId(i.ref) !== nanoId(ref));   // one revision per contract
     if (under) ensureIntent(under);
     draft.includes.push({ ref, mode: under ? 'nest' : 'add', under });
   },
@@ -448,6 +443,7 @@ function fillHead() {
 }
 
 async function boot() {
+  if (STORE !== 'catalogue') $('.eyebrow').textContent += ` · from the ${STORES[STORE].toLowerCase()} store`;
   try { cat = await loadCatalogue(); }
   catch (err) { $('#canvas-body').innerHTML = `<p class="notice error">${esc(err.message)}</p>`; return; }
   draft = restore();

@@ -2,7 +2,7 @@
 // Shared by the viewer's funnel and the graph view.
 
 const RANK = { gap: 0, thin: 1, claimed: 2 };
-const short = (s, max) => (s = String(s ?? '')).length > max ? `${s.slice(0, max - 1)}…` : s;
+import { short } from './common.mjs';
 
 // `n` is a node of report.tree; `claims` is report.claims. Returns plain text.
 export function coverageReason(n, claims) {

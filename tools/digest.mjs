@@ -11,14 +11,14 @@
 import { readFileSync } from 'node:fs';
 import { openStore, catalogue, DEFAULT_PATH, SYSTEM_PATH } from '../server/store.mjs';
 import { lookup, serviceUnits, apply, tryApply } from '../server/digest.mjs';
+import { latestById } from '../public/common.mjs';
 
 const [command, arg, extra] = process.argv.slice(2);
 const platform = () => catalogue(openStore(SYSTEM_PATH, { readonly: true }));
 
 if (command === 'services') {
   const cat = platform();
-  const latest = new Map();
-  for (const c of Object.values(cat.contracts)) if (!latest.has(c.id) || latest.get(c.id).rev < c.rev) latest.set(c.id, c);
+  const latest = latestById(Object.values(cat.contracts));
   for (const c of [...latest.values()].filter(c => c.id.startsWith('service.') && c.status !== 'retired'))
     console.log(`${c.id.slice(8).padEnd(16)} ${c.title}\n${c.includes.map(i => `  ${cat.contracts[i.ref].title}`).join('\n')}`);
 } else if (command === 'service' && arg) {
@@ -40,14 +40,14 @@ if (command === 'services') {
 } else if (command === 'try' && arg) {
   try {
     const r = tryApply(openStore(SYSTEM_PATH, { readonly: true }), JSON.parse(readFileSync(arg, 'utf8')));
-    console.log(`It applies. Services revised: ${r.services.join(', ')}\nNew revisions by kind: ${JSON.stringify(r.revisions)}`);
+    console.log(`It applies. Services revised: ${r.services.join(', ') || 'none'}\nNew revisions by kind: ${JSON.stringify(r.revisions)}`);
   } catch (err) {
     console.error(`It does not apply: ${err.message}`);
     process.exit(1);
   }
 } else if (command === 'apply' && arg) {
   const revised = apply(openStore(SYSTEM_PATH), JSON.parse(readFileSync(arg, 'utf8')));
-  console.log(`Digested into ${revised.length} service${revised.length === 1 ? '' : 's'}: ${revised.join(', ')}. Now run: node tools/platform.mjs extract`);
+  console.log(`Applied${revised.length ? `, into ${revised.length} service${revised.length === 1 ? '' : 's'}: ${revised.join(', ')}` : ''}. Now run: node tools/platform.mjs extract`);
 } else {
   console.error('usage: node tools/digest.mjs services | service <id> [--text] | lookup "<words>" [kind] | try <digest.json> | apply <digest.json>');
   process.exit(2);

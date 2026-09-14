@@ -13,6 +13,7 @@ import { openStore, catalogue, TEXT_FIELD, DEFAULT_PATH, SYSTEM_PATH } from '../
 import { report } from '../server/checks.mjs';
 import { relinkContract } from '../server/relink.mjs';
 import { picoMatcher, suggest, nearMisses } from '../public/picos.mjs';
+import { latestById } from '../public/common.mjs';
 
 const [command, contract, text] = process.argv.slice(2);
 const usage = () => {
@@ -22,12 +23,7 @@ const usage = () => {
 const db = openStore(process.env.COMPOSER_STORE === 'system' ? SYSTEM_PATH : DEFAULT_PATH, { readonly: command !== 'relink' });
 
 // The picos a composition defines: its definitions, at the revision the composition includes.
-function definedPicos(r) {
-  const latest = new Map();
-  for (const n of Object.values(r.nanos).filter(n => n.kind === 'definition'))
-    if (!latest.has(n.id) || latest.get(n.id).rev < n.rev) latest.set(n.id, n);
-  return [...latest.values()];
-}
+const definedPicos = r => [...latestById(Object.values(r.nanos).filter(n => n.kind === 'definition')).values()];
 
 if (command === 'list') {
   const picos = contract ? definedPicos(report(db, contract)) : Object.values(catalogue(db).nanos).filter(n => n.kind === 'definition');

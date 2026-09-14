@@ -6,9 +6,8 @@
 import { findSource } from './source.mjs';
 import { layering, layersOf, paint, stackAt, bbox } from './space.mjs';
 import { EXAMPLE } from './example-demesnes.mjs';
+import { $, esc } from './common.mjs';
 
-const $ = selector => document.querySelector(selector);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = n => Number(n).toFixed(4);
 const token = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 

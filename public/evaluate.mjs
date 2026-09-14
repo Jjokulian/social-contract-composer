@@ -3,7 +3,8 @@
 // parameter values, for a chosen society, yields the composition report. Every step is one pass or a pairwise
 // comparison; nothing searches.
 
-export const nanoId = ref => String(ref).split('@')[0];
+import { nanoId } from './common.mjs';
+export { nanoId };
 
 const HOLDS = {
   '<': (x, v) => x < v, '<=': (x, v) => x <= v,

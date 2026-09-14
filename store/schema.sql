@@ -244,7 +244,8 @@ CREATE TABLE IF NOT EXISTS nano_implementation (
 ) STRICT;
 
 -- A unit of software gone from every file, and the unit it lives on as: the same shape (server/syntax.mjs), renamed or
--- moved. Whatever records the old unit as implementing it follows the move, as names follow content in a
+-- moved; or, with the shape 'declared', a near-copy a digest merged into one shared definition (server/digest.mjs).
+-- Whatever records the old unit as implementing it follows the move, as names follow content in a
 -- content-addressed codebase.
 CREATE TABLE IF NOT EXISTS unit_moved (
   from_id    TEXT NOT NULL PRIMARY KEY REFERENCES nano(id),

@@ -4,13 +4,13 @@
 import { readFileSync } from 'node:fs';
 import { catalogue } from './store.mjs';
 import { picoMatcher } from '../public/picos.mjs';
+import { esc, nanoId, latestById } from '../public/common.mjs';
 
 export const GUIDE = new URL('../public/guide.html', import.meta.url);
 const START = '<!-- vocabulary:start';
 const END = '<!-- vocabulary:end -->';
 
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const anchor = ref => `term-${String(ref).split('@')[0]}`;
+const anchor = ref => `term-${nanoId(ref)}`;
 const capital = s => s.charAt(0).toUpperCase() + s.slice(1);
 
 // Every pico of the vocabulary micro, in its order. Each meaning links the words it was written with to their picos,
@@ -19,9 +19,8 @@ const capital = s => s.charAt(0).toUpperCase() + s.slice(1);
 // because signatures rest on it; the platform's own copy has no signatures, so it follows each pico's latest revision.
 export function renderGlossary(db) {
   const cat = catalogue(db);
-  const latest = new Map();
-  for (const n of Object.values(cat.nanos)) if (!latest.has(n.id) || latest.get(n.id).rev < n.rev) latest.set(n.id, n);
-  const current = ref => latest.get(String(ref).split('@')[0]);
+  const latest = latestById(Object.values(cat.nanos));
+  const current = ref => latest.get(nanoId(ref));
   const vocabulary = Object.values(cat.contracts).filter(c => c.id === 'vocabulary').sort((a, b) => b.rev - a.rev)[0];
   if (!vocabulary) throw new Error('the system store has no vocabulary micro');
   return vocabulary.members.map(ref => cat.nanos[ref]).filter(n => n.kind === 'definition').map(p => {

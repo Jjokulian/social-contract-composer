@@ -10,8 +10,8 @@ import { addVocabulary, addNano, reviseContract, catalogue } from './store.mjs';
 import { relinkContract } from './relink.mjs';
 import { heldPicos, currentUnits } from './platform.mjs';
 import { suggest } from '../public/picos.mjs';
+import { latestById } from '../public/common.mjs';
 
-const latestOf = list => { const by = new Map(); for (const x of list) if (!by.has(x.id) || by.get(x.id).rev < x.rev) by.set(x.id, x); return by; };
 
 // ─── Looking up what exists ──────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ export function lookup(sources, words, { kind = null, limit = 12 } = {}) {
   const q = tokens(words), exact = String(words).trim().toLowerCase();
   const found = [];
   for (const { store, cat } of sources)
-    for (const n of latestOf(Object.values(cat.nanos)).values()) {
+    for (const n of latestById(Object.values(cat.nanos)).values()) {
       if (!['definition', 'clause', 'intent'].includes(n.kind) || (kind && n.kind !== kind)) continue;
       const t = tokens([n.term, n.termLabel, ...(n.forms ?? []), n.meaning, n.text, n.statement].filter(Boolean).join(' '));
       const shared = [...q].filter(w => t.has(w)).length;
@@ -42,7 +42,7 @@ export function lookup(sources, words, { kind = null, limit = 12 } = {}) {
 
 // A service's files and their units: what an agent reads before digesting it.
 export function serviceUnits(cat, service) {
-  const contracts = latestOf(Object.values(cat.contracts));
+  const contracts = latestById(Object.values(cat.contracts));
   const s = contracts.get(`service.${service}`);
   if (!s) throw new Error(`no service ${service}: the services are ${[...contracts.keys()].filter(k => k.startsWith('service.')).map(k => k.slice(8)).join(', ')}`);
   return {
@@ -58,7 +58,9 @@ export function serviceUnits(cat, service) {
 // ─── Applying a reconciled digest ────────────────────────────────────────────
 //
 //   { roles:    [[id, label]],
-//     picos:    [{ id, term, label, meaning, forms, implementedBy: [unit id] }],     an existing id: gains implementing units
+//     merges:   [[gone unit id, current unit id, why]],                              a near-copy folded into one definition
+//     picos:    [{ id, term, label, meaning, forms, implementedBy: [unit id],       an existing id: gains implementing units,
+//                  drop: [unit id] }],                                               and loses those that now only use it
 //     services: [{ service, intents: [{ id, statement, parent? }],
 //                  nanos:   [{ id, role?, modality?, text, implementedBy, serves: [{ intent, strength, rationale }] }],
 //                  picos:   [pico id] }] }                                          the picos the service holds
@@ -66,10 +68,25 @@ export function apply(db, digest, { source = 'digested by agents from the platfo
   const by = { filedBy: 'claude-draft', source };
   const revised = db.transaction(() => {
     for (const [id, label] of digest.roles ?? []) addVocabulary(db, 'role', id, label);
-    const cat = catalogue(db);
-    const nanos = latestOf(Object.values(cat.nanos)), contracts = latestOf(Object.values(cat.contracts));
-    const live = currentUnits(contracts);   // only code that a current file holds can implement anything
+    let cat = catalogue(db);
+    const live = currentUnits(latestById(Object.values(cat.contracts)));   // only code that a current file holds can implement anything
     const unit = id => { if (!live.has(id)) throw new Error(`no unit of software ${id} in any current file`); return id; };
+
+    // Merges: copies of one piece of code that differed a little (a default, a narrower signature), replaced by one
+    // shared definition. The extractor follows code whose shape is unchanged by itself; a merge is declared instead,
+    // like a linker's alias, and whatever named a copy as implementing something follows it to the shared definition.
+    if (digest.merges?.length) {
+      const isUnit = db.prepare("SELECT 1 FROM nano WHERE id = ? AND kind = 'unit'").pluck(), moved = db.prepare('SELECT 1 FROM unit_moved WHERE from_id = ?').pluck();
+      for (const [from, to, why] of digest.merges) {
+        if (!isUnit.get(from)) throw new Error(`no unit of software ${from}`);
+        if (live.has(from)) throw new Error(`${from} is still in a current file: only code that is gone can be merged`);
+        if (moved.get(from)) throw new Error(`${from} has already moved`);
+        if (!why) throw new Error(`say why ${from} is merged into ${to}`);
+        db.prepare("INSERT INTO unit_moved (from_id, to_id, shape, source) VALUES (?, ?, 'declared', ?)").run(from, unit(to), `${why} (${source})`);
+      }
+      cat = catalogue(db);   // what implemented the copies now follows them
+    }
+    const nanos = latestById(Object.values(cat.nanos)), contracts = latestById(Object.values(cat.contracts));
 
     // No new pico may take a form another pico already has: a form links wherever it occurs, so it must mean one thing.
     const formOwner = new Map(heldPicos(contracts, nanos).flatMap(p => p.forms.map(f => [f.toLowerCase(), p.id])));
@@ -86,7 +103,11 @@ export function apply(db, digest, { source = 'digested by agents from the platfo
     const picoRef = new Map();
     for (const p of digest.picos ?? []) {
       const current = nanos.get(p.id);
-      const implementedBy = [...new Set([...(current?.implementedBy ?? []), ...(p.implementedBy ?? []).map(unit)])].sort();
+      // Code no current file holds any longer drops out, and so does code the digest says now only uses the pico;
+      // the units given join.
+      const drop = new Set(p.drop ?? []);
+      for (const id of drop) if (!current?.implementedBy?.includes(id)) throw new Error(`${p.id} is not implemented by ${id}, so it can't drop it`);
+      const implementedBy = [...new Set([...(current?.implementedBy ?? []).filter(id => live.has(id) && !drop.has(id)), ...(p.implementedBy ?? []).map(unit)])].sort();
       if (current) {
         if (current.kind !== 'definition') throw new Error(`${p.id} is a ${current.kind}, not a pico`);
         if (implementedBy.join() === (current.implementedBy ?? []).join()) { picoRef.set(p.id, current.ref); continue; }

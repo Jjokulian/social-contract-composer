@@ -130,6 +130,7 @@ export function shapeOf(text, language, declares = []) {
       const tokens = [];
       for (const t of acorn.tokenizer(text, { ecmaVersion: 'latest', sourceType: 'module', allowHashBang: true }))
         tokens.push(t.type.label === 'name' && own.has(t.value) ? '§' : text.slice(t.start, t.end));
+      if (tokens[0] === 'export') tokens.splice(0, tokens[1] === 'default' ? 2 : 1);   // exporting it doesn't change the code
       normal = tokens.join(' ');
     } catch { /* not a whole statement on its own: fall back to its words */ }
   }

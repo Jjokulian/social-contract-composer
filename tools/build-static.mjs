@@ -34,7 +34,7 @@ write('.nojekyll', '');   // serve every file as-is
 // their content, so a new deploy is never paired with a cached old script. Data is revalidated by the client.
 const read = path => readFileSync(new URL(path, OUT), 'utf8');
 const SCRIPTS = ['app.js', 'composer.js', 'graph.js', 'globe.js', 'levels.js', 'compose.mjs', 'evaluate.mjs', 'picos.mjs', 'source.mjs',
-                 'explain.mjs', 'space.mjs', 'example-demesnes.mjs', 'levels.mjs'];
+                 'explain.mjs', 'space.mjs', 'example-demesnes.mjs', 'levels.mjs', 'common.mjs'];
 const PAGES = ['index.html', 'guide.html', 'compose.html', 'graph.html', 'globe.html', 'levels.html'];
 const version = createHash('sha256').update([...SCRIPTS, 'style.css', ...PAGES].map(read).join('\0')).digest('hex').slice(0, 10);
 for (const script of SCRIPTS)

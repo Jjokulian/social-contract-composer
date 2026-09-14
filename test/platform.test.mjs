@@ -2,7 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { openStore, catalogue, SYSTEM_PATH } from '../server/store.mjs';
-import { split, compare, extract, rebuild } from '../server/platform.mjs';
+import { split, compare, extract, rebuild, listFiles, serviceOf } from '../server/platform.mjs';
+
+test('every file belongs to a service: none falls into “Other files”', () => {
+  assert.deepEqual(listFiles().filter(path => serviceOf(path) === 'other'), [], 'add each to its service in SERVICES (server/platform.mjs)');
+});
 
 test('each kind of file splits into units that join back into the file exactly', () => {
   const samples = {

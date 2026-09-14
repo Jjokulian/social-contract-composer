@@ -9,6 +9,7 @@
 //
 // A segment is a GeoJSON Polygon or MultiPolygon in its space's frame (for Earth: longitude and latitude in degrees).
 // Edges are straight in that frame, so a segment that crosses the antimeridian is written as two polygons.
+import { latestById } from './common.mjs';
 
 const EPS = 1e-9;
 
@@ -106,11 +107,7 @@ export function relate(a, b) {
 const INVERSE = { within: 'contains', contains: 'within', equal: 'equal', overlaps: 'overlaps', touches: 'touches', disjoint: 'disjoint' };
 
 // The latest revision of each demesne.
-export function currentDemesnes(demesnes) {
-  const latest = new Map();
-  for (const d of demesnes) if (!latest.has(d.id) || latest.get(d.id).rev < d.rev) latest.set(d.id, d);
-  return [...latest.values()];
-}
+export const currentDemesnes = demesnes => [...latestById(demesnes).values()];
 
 // Every current demesne on a coordinate space, from the outermost to the innermost, each with:
 //   level        its nesting level: 1 for a demesne within no other, 2 within one, and so on

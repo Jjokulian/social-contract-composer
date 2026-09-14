@@ -3,9 +3,8 @@
 // not cut. State lives in the URL (?store=…&scope=…&levels=…&relations=…&revisions=apart), so a view can be linked.
 import { findSource, storeOf, STORES } from './source.mjs';
 import { buildGraph, filterGraph, LEVELS, RELATIONS } from './levels.mjs';
+import { $, esc, palette, latestById } from './common.mjs';
 
-const $ = selector => document.querySelector(selector);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const store = storeOf(location.search);
 const query = new URLSearchParams(location.search);
@@ -36,11 +35,6 @@ const LAYOUT = (() => { try { return cytoscape('layout', 'dagre'); } catch { ret
 
 // ─── Drawing ─────────────────────────────────────────────────────────────────
 
-function palette() {
-  const s = getComputedStyle(document.documentElement), v = name => s.getPropertyValue(name).trim();
-  return { ink: v('--ink'), ink2: v('--ink-2'), ink3: v('--ink-3'), rule: v('--rule-strong'), surface: v('--surface'), ground: v('--ground'),
-           accent: v('--accent'), claimed: v('--claimed'), gap: v('--gap') };
-}
 const SERIF = 'Source Serif 4, Georgia, serif', SANS = 'IBM Plex Sans, system-ui, sans-serif', MONO = 'IBM Plex Mono, monospace';
 const edgeLabel = t => ({ label: 'data(label)', 'font-family': SANS, 'font-size': 10, color: t.ink2,
                           'text-background-color': t.surface, 'text-background-opacity': 1, 'text-background-padding': 2, 'text-rotation': 'autorotate' });
@@ -201,8 +195,7 @@ async function main() {
   storeSelect.value = store;
   storeSelect.addEventListener('change', () => { location.search = storeSelect.value === 'catalogue' ? '' : `?store=${storeSelect.value}`; });
 
-  const latest = new Map();
-  for (const c of Object.values(cat.contracts)) if (!latest.has(c.id) || latest.get(c.id).rev < c.rev) latest.set(c.id, c);
+  const latest = latestById(Object.values(cat.contracts));
   const contracts = [...latest.values()].filter(c => c.status !== 'retired');
   if (state.scope !== 'all' && !latest.has(state.scope)) state.scope = 'all';
   const scope = $('#scope');

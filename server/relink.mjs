@@ -8,6 +8,7 @@
 import { addNano, reviseContract, resolveContract, catalogue, TEXT_FIELD } from './store.mjs';
 import { compose } from '../public/compose.mjs';
 import { suggest } from '../public/picos.mjs';
+import { latestById } from '../public/common.mjs';
 
 // What addNano takes, from what describe() returns.
 function toInput(n) {
@@ -61,8 +62,8 @@ export function relinkContract(db, contractRef, { filedBy, source }) {
     for (const target of pointers(c)) blockedBy.set(target, [...(blockedBy.get(target) ?? []), c.ref]);
 
   const map = new Map();              // old ref → new ref
-  const defined = new Map();          // pico id → pico (latest revision the contract defines, updated as picos are rewritten)
-  for (const r of own) { const n = nano(r); if (n.kind === 'definition' && (!defined.has(n.id) || defined.get(n.id).rev < n.rev)) defined.set(n.id, n); }
+  // pico id → pico (latest revision the contract defines, updated as picos are rewritten)
+  const defined = latestById([...own].map(nano).filter(n => n.kind === 'definition'));
   const picoList = () => [...defined.values()].map(p => ({ ref: p.ref, forms: p.forms }));
   const blocked = [], rewritten = [];
 

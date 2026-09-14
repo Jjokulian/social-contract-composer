@@ -3,6 +3,7 @@
 // Pure JavaScript over a catalogue (server/store.mjs → catalogue), so the page and the tests compute it the same way.
 import { compose } from './compose.mjs';
 import { evaluate } from './evaluate.mjs';
+import { short, latestById } from './common.mjs';
 
 export const LEVELS = { milli: 'Millis', micro: 'Micros', nano: 'Nanos', pico: 'Picos' };
 export const RELATIONS = {
@@ -31,7 +32,6 @@ export const levelOf = x => (x.scale ? (x.scale === 'social' ? 'milli' : 'micro'
 const textOf = x => (x.kind === 'unit' ? `${x.form} ${x.name ?? ''}`.trim()
   : x.kind === 'evaluation' ? `${x.society}: ${x.value} (${x.observedOn})`
   : x.title ?? x.statement ?? x.text ?? x.label ?? x.termLabel ?? x.meaning ?? x.ref);
-const short = (s, max = 64) => (s = String(s ?? '')).length > max ? `${s.slice(0, max - 1)}…` : s;
 
 //   scope:     'all', or a contract id: that contract and what it reaches
 //   levels:    the levels to show; a hidden level is crossed, not cut
@@ -40,9 +40,8 @@ const short = (s, max = 64) => (s = String(s ?? '')).length > max ? `${s.slice(0
 // The whole graph for a scope, before any filter: every node at every level, and every relation. Filtering it
 // (filterGraph) is cheap, so a page builds it once per scope and only filters it when the levels or relations change.
 export function buildGraph(cat, { scope = 'all', revisions = 'merge' } = {}) {
-  const latestOf = list => { const by = new Map(); for (const x of list) if (!by.has(x.id) || by.get(x.id).rev < x.rev) by.set(x.id, x); return by; };
-  const latestContract = latestOf(Object.values(cat.contracts));
-  const latestNano = latestOf(Object.values(cat.nanos));
+  const latestContract = latestById(Object.values(cat.contracts));
+  const latestNano = latestById(Object.values(cat.nanos));
   const merge = revisions === 'merge';
   const key = ref => {
     if (!merge) return ref;
@@ -65,7 +64,7 @@ export function buildGraph(cat, { scope = 'all', revisions = 'merge' } = {}) {
     const id = key(x.ref);
     if (!nodes.has(id)) {
       const shown = cat.contracts[id] ?? cat.nanos[id] ?? x;
-      nodes.set(id, { id, level: levelOf(shown), kind: shown.kind ?? shown.scale, label: short(textOf(shown)), title: textOf(shown),
+      nodes.set(id, { id, level: levelOf(shown), kind: shown.kind ?? shown.scale, label: short(textOf(shown), 64), title: textOf(shown),
                       ...(shown.status && { status: shown.status }), ...(shown.scale && { contract: shown.id }),
                       ...(shown.form && { form: shown.form }) });
     }

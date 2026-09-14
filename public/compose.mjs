@@ -4,7 +4,7 @@
 //
 //   catalogue: { nanos: { ref: nano }, contracts: { ref: contract }, observations: { measureId: { society: obs } } }
 //   spec:      a contract ({ ref, intents, edges, members, parameters, includes, operations, resolution, … }), stored or drafted
-import { nanoId } from './evaluate.mjs';
+import { nanoId, latestById } from './common.mjs';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
@@ -97,8 +97,7 @@ export function compose(cat, spec) {
   // picos, say) are superseded, never outside claims of their own.
   const everything = Object.values(cat.nanos).sort((a, b) => a.rid - b.rid);
   const endorsedClaims = new Set([...members].filter(ref => nanoOf(ref).kind === 'claim').map(nanoId));
-  const latestClaim = new Map();
-  for (const n of everything) if (n.kind === 'claim' && (latestClaim.get(n.id)?.rev ?? 0) < n.rev) latestClaim.set(n.id, n);
+  const latestClaim = latestById(everything.filter(n => n.kind === 'claim'));
   const claims = everything.filter(n => n.kind === 'claim' && has(n.from) && has(n.to) && n.given.every(has)
       && (has(n.ref) || (!endorsedClaims.has(n.id) && latestClaim.get(n.id) === n)))
     .map(n => ({ ...n, endorsed: has(n.ref) }));

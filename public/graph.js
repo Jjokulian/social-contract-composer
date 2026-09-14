@@ -3,10 +3,8 @@
 import { evaluate } from './evaluate.mjs';
 import { findSource, storeOf, STORES } from './source.mjs';
 import { coverageReason } from './explain.mjs';
+import { $, esc, short, palette, latestById } from './common.mjs';
 
-const $ = selector => document.querySelector(selector);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const short = (s, max) => (s = String(s ?? '')).length > max ? `${s.slice(0, max - 1)}…` : s;
 
 try { cytoscape.use(window.cytoscapeDagre); } catch { /* already registered by its own script */ }
 // The layered layout when its script loaded; Cytoscape's own breadth-first layout otherwise.
@@ -78,8 +76,7 @@ function elements(r, show) {
   if (show.picos) {
     // The composition's own words, and every recorded reference to a pico, including the picos' references to one
     // another. Revisions of one word are drawn as one node: the Contracts view reports revisions that differ.
-    const latest = new Map();
-    for (const n of Object.values(r.nanos)) if (n.kind === 'definition' && (!latest.has(n.id) || latest.get(n.id).rev < n.rev)) latest.set(n.id, n);
+    const latest = latestById(Object.values(r.nanos).filter(n => n.kind === 'definition'));
     const word = ref => latest.get(String(ref).split('@')[0])?.ref ?? ref;
     for (const n of latest.values()) node(n.ref, 'pico', n.termLabel ?? n.ref);
     for (const queue = [...nodes.keys()]; queue.length;) {
@@ -96,11 +93,6 @@ function elements(r, show) {
 
 // ─── Drawing ─────────────────────────────────────────────────────────────────
 
-function palette() {
-  const s = getComputedStyle(document.documentElement), v = name => s.getPropertyValue(name).trim();
-  return { ink: v('--ink'), ink2: v('--ink-2'), ink3: v('--ink-3'), rule: v('--rule-strong'), surface: v('--surface'), ground: v('--ground'),
-           accent: v('--accent'), claimed: v('--claimed'), thin: v('--thin'), gap: v('--gap') };
-}
 
 const SERIF = 'Source Serif 4, Georgia, serif', SANS = 'IBM Plex Sans, system-ui, sans-serif', MONO = 'IBM Plex Mono, monospace';
 const style = t => [
