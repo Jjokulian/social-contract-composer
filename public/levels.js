@@ -17,6 +17,7 @@ const state = {
   revisions: query.get('revisions') === 'apart' ? 'apart' : 'merge',
 };
 let cat, cy;
+let dense = false;   // a large graph: laid out in bands, drawn with straight, unlabelled connections
 
 function writeUrl() {
   const q = new URLSearchParams();
@@ -43,7 +44,7 @@ function palette() {
 const SERIF = 'Source Serif 4, Georgia, serif', SANS = 'IBM Plex Sans, system-ui, sans-serif', MONO = 'IBM Plex Mono, monospace';
 const edgeLabel = t => ({ label: 'data(label)', 'font-family': SANS, 'font-size': 10, color: t.ink2,
                           'text-background-color': t.surface, 'text-background-opacity': 1, 'text-background-padding': 2, 'text-rotation': 'autorotate' });
-const style = t => [
+const style = (t, dense = false) => [
   { selector: 'node', style: {
     label: 'data(label)', 'text-wrap': 'wrap', 'text-max-width': 150, 'font-family': SERIF, 'font-size': 11, color: t.ink,
     'text-valign': 'center', 'text-halign': 'center', 'background-color': t.surface, 'border-width': 1.5, 'border-color': t.rule,
@@ -55,7 +56,9 @@ const style = t => [
   { selector: 'node[kind = "measure"]', style: { shape: 'ellipse' } },
   { selector: 'node[kind = "consequence"]', style: { shape: 'cut-rectangle', 'border-color': t.gap } },
   { selector: 'node[level = "pico"]', style: { shape: 'tag', 'font-family': MONO, 'font-size': 10, 'border-color': t.accent, padding: 5 } },
-  { selector: 'edge', style: { width: 1.2, 'line-color': t.rule, 'target-arrow-color': t.rule, 'target-arrow-shape': 'triangle', 'arrow-scale': 0.8, 'curve-style': 'bezier' } },
+  // Curves keep parallel connections apart in a small graph; in a large one, straight lines draw many times faster.
+  { selector: 'edge', style: { width: 1.2, 'line-color': t.rule, 'target-arrow-color': t.rule, 'target-arrow-shape': 'triangle', 'arrow-scale': 0.8,
+                               'curve-style': dense ? 'straight' : 'bezier' } },
   { selector: 'edge[kind = "composes"]', style: { width: 3, 'line-color': t.ink2, 'target-arrow-color': t.ink2, ...edgeLabel(t) } },
   { selector: 'edge[kind = "operates"]', style: { width: 2, 'line-style': 'dashed', 'line-color': t.gap, 'target-arrow-color': t.gap, ...edgeLabel(t), color: t.gap } },
   { selector: 'edge[kind = "precedence"]', style: { width: 3, 'line-color': t.accent, 'target-arrow-color': t.accent, ...edgeLabel(t), color: t.accent } },
@@ -66,7 +69,7 @@ const style = t => [
   { selector: 'edge[kind = "claims"][relation = "conflicts"]', style: { 'line-color': t.gap, 'target-arrow-shape': 'tee', 'source-arrow-shape': 'tee', 'source-arrow-color': t.gap, 'target-arrow-color': t.gap } },
   { selector: 'edge[kind = "breaches"]', style: { 'line-color': t.gap, 'target-arrow-color': t.gap, width: 1.5 } },
   { selector: 'edge[kind = "influences"]', style: { 'line-color': t.ink3, 'target-arrow-color': t.ink3, width: 1 } },
-  { selector: 'edge[kind = "depends"]', style: { 'line-color': t.ink3, 'target-arrow-color': t.ink3, width: 1, ...edgeLabel(t), 'font-size': 9 } },
+  { selector: 'edge[kind = "depends"]', style: { 'line-color': t.ink3, 'target-arrow-color': t.ink3, width: 1, ...(dense ? {} : { ...edgeLabel(t), 'font-size': 9 }) } },
   { selector: 'node[kind = "unit"]', style: { 'font-family': MONO, 'font-size': 10 } },
   { selector: 'edge[kind = "through"]', style: { 'line-style': 'dashed', 'line-dash-pattern': [3, 4], width: 1, opacity: 0.75 } },
   { selector: 'node:selected', style: { 'border-color': t.accent, 'border-width': 4 } },
@@ -117,11 +120,20 @@ function inBands() {
 
 function draw() {
   const g = levelGraph(cat, { scope: state.scope, levels: [...state.levels], relations: [...state.relations], revisions: state.revisions });
-  cy.elements().remove();
-  cy.add([...g.nodes.map(n => ({ group: 'nodes', data: n })), ...g.edges.map((e, i) => ({ group: 'edges', data: { id: `e${i}`, ...e } }))]);
-  cy.layout(LAYOUT).run();
-  const box = cy.elements().boundingBox();
-  if (cy.nodes().length > 40 || (box.w > box.h * 2.5 && cy.nodes().length > 16)) inBands();
+  // Decide the layout before laying anything out: a large graph goes straight into bands, never through the flowing
+  // layout first (which costs seconds on hundreds of nodes, only to be thrown away).
+  const large = g.nodes.length > 40;
+  if (large !== dense) { dense = large; cy.style(style(palette(), dense)); }
+  cy.batch(() => {   // one style and render pass for the whole swap, not one per element
+    cy.elements().remove();
+    cy.add([...g.nodes.map(n => ({ group: 'nodes', data: n })), ...g.edges.map((e, i) => ({ group: 'edges', data: { id: `e${i}`, ...e } }))]);
+  });
+  if (dense) inBands();
+  else {
+    cy.layout(LAYOUT).run();
+    const box = cy.elements().boundingBox();
+    if (box.w > box.h * 2.5 && cy.nodes().length > 16) inBands();
+  }
   cy.fit(undefined, 30);
   $('#count').textContent = `${g.nodes.length} nodes · ${g.edges.length} connections`;
   writeUrl();
@@ -216,7 +228,7 @@ async function main() {
   });
   $('#fit').addEventListener('click', () => cy.fit(undefined, 30));
   window.addEventListener('resize', () => cy.resize());
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => cy.style(style(palette())));
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => cy.style(style(palette(), dense)));
   draw();
 }
 
