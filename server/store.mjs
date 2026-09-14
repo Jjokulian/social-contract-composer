@@ -27,6 +27,9 @@ function migrate(db) {
   if (!columns.includes('binding')) db.exec("ALTER TABLE clause_body ADD COLUMN binding TEXT CHECK (binding IN ('work', 'abide', 'liberty'))");
   if (!db.prepare('PRAGMA table_info(contract_include)').all().some(c => c.name === 'base'))
     db.exec('ALTER TABLE contract_include ADD COLUMN base INTEGER NOT NULL DEFAULT 0 CHECK (base IN (0, 1))');
+  // A contract can hold units of software: recreate the member-kind check where it predates them.
+  const memberKinds = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'contract_member_kind'").pluck().get();
+  if (memberKinds && !memberKinds.includes("'unit'")) { db.exec('DROP TRIGGER contract_member_kind'); db.exec(SCHEMA); }
 }
 
 // What a clause binds its role to, when the clause doesn't state it: follows the modality.
@@ -130,6 +133,11 @@ const WRITE = {
       .run(rid, resolve(db, b.from), b.direction, resolve(db, b.to), b.rationale),
   consequence: (db, rid, b) =>
     db.prepare('INSERT INTO consequence_body (rid, statement) VALUES (?, ?)').run(rid, b.statement),
+  unit: (db, rid, b) => {   // a unit of the platform's software, with what it imports and uses
+    db.prepare('INSERT INTO unit_body (rid, form, name, language, text) VALUES (?, ?, ?, ?, ?)').run(rid, b.form, b.name ?? null, b.language, b.text);
+    for (const d of b.depends ?? [])
+      db.prepare('INSERT INTO unit_depends (rid, target_id, relation) VALUES (?, ?, ?)').run(rid, d.id, d.relation);
+  },
   evaluation: (db, rid, b) =>
     db.prepare('INSERT INTO evaluation_body (rid, measure_rid, society_id, value, observed_on, source_url) VALUES (?, ?, ?, ?, ?, ?)')
       .run(rid, resolve(db, b.measure, 'measure'), b.society, b.value, b.observedOn, b.sourceUrl),
@@ -137,7 +145,8 @@ const WRITE = {
 
 // The field that holds a nano's words, per kind: where its picos are referred to.
 export const TEXT_FIELD = { intent: 'statement', clause: 'text', definition: 'meaning', claim: 'rationale', assumption: 'statement',
-                            influence: 'rationale', consequence: 'statement', measure: 'description', parameter: 'meaning' };
+                            influence: 'rationale', consequence: 'statement', measure: 'description', parameter: 'meaning',
+                            unit: 'text' };
 
 // Add a revision of a nano (revision 1 creates the nano). Returns { ref, rid }.
 //   picos: [{ phrase, pico }] — the phrases in its text that refer to which pico revisions, fixed with this revision.
@@ -353,6 +362,10 @@ const READ = {
     return { from: refOf(db, i.from_rid), direction: i.direction, to: refOf(db, i.to_rid), rationale: i.rationale };
   },
   consequence: (db, rid) => db.prepare('SELECT statement FROM consequence_body WHERE rid = ?').get(rid),
+  unit: (db, rid) => ({
+    ...db.prepare('SELECT form, name, language, text FROM unit_body WHERE rid = ?').get(rid),
+    depends: db.prepare('SELECT target_id AS id, relation FROM unit_depends WHERE rid = ? ORDER BY target_id, relation').all(rid),
+  }),
   evaluation: (db, rid) => {
     const e = db.prepare('SELECT measure_rid, society_id, value, observed_on, source_url FROM evaluation_body WHERE rid = ?').get(rid);
     return { measure: refOf(db, e.measure_rid), society: e.society_id, value: e.value, observedOn: e.observed_on, sourceUrl: e.source_url };

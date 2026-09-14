@@ -212,7 +212,7 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
   };
 
   return {
-    contract: snap.contract, society, parameters, tree, checks, socioship, resolution: snap.resolution ?? [],
+    contract: snap.contract, society, parameters, tree, checks, socioship, resolution: snap.resolution ?? [], code: snap.code ?? [],
     influences: snap.influences,
     breaches: snap.breaches,
     enforcement: snap.enforcement,

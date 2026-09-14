@@ -20,6 +20,7 @@ function toInput(n) {
     case 'measure': return { ...base, label: n.label, unit: n.unit, description: n.description };
     case 'assumption': return { ...base, statement: n.statement, ...(n.condition ? { condition: { ...n.condition } } : {}) };
     case 'consequence': return { ...base, statement: n.statement };
+    case 'unit': return { ...base, form: n.form, name: n.name, language: n.language, text: n.text, depends: n.depends.map(d => ({ ...d })) };
     case 'claim': return { ...base, from: n.from, relation: n.relation, to: n.to, strength: n.strength, rationale: n.rationale,
       given: [...n.given], when: n.when.map(w => ({ parameter: w.parameter, op: w.op, value: w.value })),
       assuming: n.assuming.map(a => a.ref), measuredBy: [...n.measuredBy] };

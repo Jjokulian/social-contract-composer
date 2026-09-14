@@ -15,12 +15,19 @@ export const RELATIONS = {
   influences: ['Influences', 'What bears on what'],
   breaches: ['Breaches', 'The consequence a composition attaches to a clause'],
   precedence: ['Precedence', 'A provision prevails over another, by a maxim its milli states'],
+  depends: ['Depends', 'A unit of software imports or uses another'],
 };
 const HIERARCHY = new Set(['composes', 'holds', 'uses']);   // these run downward: milli → micro → nano → pico
 const AS_CONNECTIONS = new Set(['claim', 'influence', 'evaluation']);   // nanos drawn as connections, not as nodes
 
-export const levelOf = x => (x.scale ? (x.scale === 'social' ? 'milli' : 'micro') : x.kind === 'definition' ? 'pico' : 'nano');
-const textOf = x => x.title ?? x.statement ?? x.text ?? x.label ?? x.termLabel ?? x.meaning ?? x.ref;
+// A unit of software that declares something and depends on no other unit is a logical unit, a pico; one that uses
+// others is a functional unit, a nano.
+const LOGICAL_FORMS = new Set(['function', 'const', 'let', 'var', 'class', 'rule', 'table', 'view']);
+const logical = u => LOGICAL_FORMS.has(u.form) && !(u.depends ?? []).length;
+export const levelOf = x => (x.scale ? (x.scale === 'social' ? 'milli' : 'micro')
+  : x.kind === 'definition' || (x.kind === 'unit' && logical(x)) ? 'pico' : 'nano');
+const textOf = x => (x.kind === 'unit' ? `${x.form} ${x.name ?? ''}`.trim()
+  : x.title ?? x.statement ?? x.text ?? x.label ?? x.termLabel ?? x.meaning ?? x.ref);
 const short = (s, max = 64) => (s = String(s ?? '')).length > max ? `${s.slice(0, max - 1)}…` : s;
 
 //   scope:     'all', or a contract id: that contract and what it reaches
@@ -54,7 +61,8 @@ export function levelGraph(cat, { scope = 'all', levels = Object.keys(LEVELS), r
     if (!nodes.has(id)) {
       const shown = cat.contracts[id] ?? cat.nanos[id] ?? x;
       nodes.set(id, { id, level: levelOf(shown), kind: shown.kind ?? shown.scale, label: short(textOf(shown)), title: textOf(shown),
-                      ...(shown.status && { status: shown.status }), ...(shown.scale && { contract: shown.id }) });
+                      ...(shown.status && { status: shown.status }), ...(shown.scale && { contract: shown.id }),
+                      ...(shown.form && { form: shown.form }) });
     }
     return id;
   };
@@ -89,6 +97,15 @@ export function levelGraph(cat, { scope = 'all', levels = Object.keys(LEVELS), r
       const had = nodes.has(key(pico));
       if (addNano(pico) && !had) queue.push(key(pico));
       link('uses', ref, pico);
+    }
+  }
+  // What each unit of software imports and uses, by the other unit's id (the platform follows each unit's latest revision).
+  for (const id of [...nodes.keys()]) {
+    const n = cat.nanos[id];
+    if (n?.kind !== 'unit') continue;
+    for (const d of n.depends ?? []) {
+      const target = latestNano.get(d.id);
+      if (target && addNano(target.ref)) link('depends', id, target.ref, { relation: d.relation, label: d.relation === 'imports' ? 'imports' : '' });
     }
   }
   for (const n of Object.values(cat.nanos)) {

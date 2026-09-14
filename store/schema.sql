@@ -31,6 +31,8 @@ INSERT OR IGNORE INTO kind (name, description) VALUES
   ('influence',  'How one measure bears on another measure or on an intent, stated without committing to its truth');
 INSERT OR IGNORE INTO kind (name, description) VALUES
   ('consequence', 'What breaching a clause costs, as the composing parties agree it');
+INSERT OR IGNORE INTO kind (name, description) VALUES
+  ('unit', 'A unit of the platform’s software: one statement, rule, section or file, holding its exact text');
 
 CREATE TABLE IF NOT EXISTS author (
   id    TEXT PRIMARY KEY,               -- a GitHub handle or a named group
@@ -212,6 +214,27 @@ CREATE TABLE IF NOT EXISTS consequence_body (
   statement TEXT NOT NULL
 ) STRICT;
 
+-- A unit of the platform's own software (server/platform.mjs): one top-level statement of a module, one SQL statement,
+-- one CSS rule, one section of a document, or a whole file. It holds its exact text, with the whitespace and comments
+-- before it, so the units a file micro holds, joined in order, are the file byte for byte.
+CREATE TABLE IF NOT EXISTS unit_body (
+  rid      INTEGER PRIMARY KEY REFERENCES revision(rid),
+  form     TEXT NOT NULL,             -- import, function, const, class, table, trigger, rule, section, document…
+  name     TEXT,                      -- what it declares, where it declares something
+  language TEXT NOT NULL,             -- javascript, sql, css, markdown, html, json, yaml or text
+  text     TEXT NOT NULL
+) STRICT;
+
+-- What a unit imports or uses, by the other unit's id: the platform's own copy follows each unit's latest revision,
+-- so a changed dependency never forces new revisions of what depends on it. Deferred, so one extraction can write
+-- units that depend on one another in either order.
+CREATE TABLE IF NOT EXISTS unit_depends (
+  rid       INTEGER NOT NULL REFERENCES unit_body(rid),
+  target_id TEXT    NOT NULL REFERENCES nano(id) DEFERRABLE INITIALLY DEFERRED,
+  relation  TEXT    NOT NULL CHECK (relation IN ('imports', 'uses')),
+  PRIMARY KEY (rid, target_id, relation)
+) STRICT;
+
 -- ─── Contracts: micro-social-contracts and Social Contracts ───────────────────
 
 CREATE TABLE IF NOT EXISTS contract (
@@ -388,8 +411,12 @@ WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.intent_rid) IS NOT 'intent'
 BEGIN SELECT RAISE(ABORT, 'contract_intent must reference an intent'); END;
 
 CREATE TRIGGER IF NOT EXISTS contract_member_kind BEFORE INSERT ON contract_member
-WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.rid) NOT IN ('clause', 'definition', 'measure', 'assumption', 'claim')
-BEGIN SELECT RAISE(ABORT, 'contract_member takes clauses, definitions, measures, assumptions and claims; intents go in contract_intent, parameters in contract_parameter'); END;
+WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.rid) NOT IN ('clause', 'definition', 'measure', 'assumption', 'claim', 'unit')
+BEGIN SELECT RAISE(ABORT, 'contract_member takes clauses, definitions, measures, assumptions, claims and units of software; intents go in contract_intent, parameters in contract_parameter'); END;
+
+CREATE TRIGGER IF NOT EXISTS unit_body_kind BEFORE INSERT ON unit_body
+WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.rid) IS NOT 'unit'
+BEGIN SELECT RAISE(ABORT, 'unit_body needs a unit revision'); END;
 
 CREATE TRIGGER IF NOT EXISTS contract_parameter_kind BEFORE INSERT ON contract_parameter
 WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.parameter_rid) IS NOT 'parameter'
@@ -410,6 +437,9 @@ CREATE TRIGGER IF NOT EXISTS claim_body_immutable         BEFORE UPDATE ON claim
 CREATE TRIGGER IF NOT EXISTS evaluation_body_immutable    BEFORE UPDATE ON evaluation_body    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS influence_body_immutable     BEFORE UPDATE ON influence_body     BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS consequence_body_immutable   BEFORE UPDATE ON consequence_body   BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS unit_body_immutable          BEFORE UPDATE ON unit_body          BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS unit_depends_immutable_u     BEFORE UPDATE ON unit_depends       BEGIN SELECT RAISE(ABORT, 'a unit’s dependencies are fixed with its revision'); END;
+CREATE TRIGGER IF NOT EXISTS unit_depends_immutable_d     BEFORE DELETE ON unit_depends       BEGIN SELECT RAISE(ABORT, 'a unit’s dependencies are fixed with its revision'); END;
 CREATE TRIGGER IF NOT EXISTS definition_form_immutable    BEFORE UPDATE ON definition_form    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS nano_pico_immutable_u        BEFORE UPDATE ON nano_pico          BEGIN SELECT RAISE(ABORT, 'a nano’s picos are fixed with its revision: write a new revision to use another pico'); END;
 CREATE TRIGGER IF NOT EXISTS nano_pico_immutable_d        BEFORE DELETE ON nano_pico          BEGIN SELECT RAISE(ABORT, 'a nano’s picos are fixed with its revision: write a new revision to use another pico'); END;

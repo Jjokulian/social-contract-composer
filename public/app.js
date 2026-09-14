@@ -362,6 +362,11 @@ function renderReport(r) {
         ? `<p style="margin:0 0 6px">These nanos were written with a different revision of a pico than the one this contract defines. They keep the meaning they were written with until they are rewritten as new revisions.</p>`
           + stale.map(s => `<p style="margin:0">${named(s.nano)}: “${esc(s.phrase)}” means <span class="ref">${esc(s.pico)}</span>; this contract defines <span class="ref">${esc(s.current)}</span></p>`).join('')
         : empty('Every nano uses the revision of its picos that this contract defines.')}</div>`),
+    r.code.length ? section('code', 'Code', 'The software itself, as the platform’s store holds it: each file’s units, in order. Joined, they are the file, byte for byte.',
+      r.code.map(g => `
+        <div class="finding"><h3>${esc(g.title)}</h3>
+          ${g.units.map(ref => { const u = nano(ref); return `<details class="unit"><summary><span class="kind-chip">${esc(u.form)}</span> ${esc(u.name ?? '')} <span class="ref">${esc(ref)}</span></summary><pre class="code">${esc(u.text)}</pre></details>`; }).join('')}
+        </div>`).join('')) : '',
     section('definitions', 'Picos: defined words', 'Words with a strict definition in this contract. Wherever one appears in the text above, it is underlined; hover or focus it to read the definition. Where a composition brings in a different definition of the same word, it shows as a clash above.',
       `<dl class="defs">${definitions.map(d => `<div><dt>${esc(d.termLabel)} <span class="ref">${esc(d.ref)}</span></dt><dd>${terms(d.meaning, d)}</dd>
         <dd class="forms">refers to it: ${d.forms.map(f => `“${esc(f)}”`).join(', ')}</dd></div>`).join('')}</dl>`),

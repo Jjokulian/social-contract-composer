@@ -137,6 +137,10 @@ export function compose(cat, spec) {
     ? (cat.socioshipTerms ?? []).map(t => ({ ...t, ...(socioshipBy.get(t.id) ?? { nanos: [], setBy: null }) }))
     : null;
 
+  // Code, for the platform's own store: each reached contract's units of software, in the order it holds them.
+  const code = order.map(({ c }) => ({ contract: keyOf(c), title: c.title, units: c.members.filter(m => has(m) && nanoOf(m).kind === 'unit') }))
+    .filter(g => g.units.length);
+
   const described = new Set([...members, ...claims.map(c => c.ref), ...claims.flatMap(c => c.measuredBy), ...influences,
                              ...breaches.flatMap(b => b.consequences),
                              ...operations.flatMap(o => [o.nano, o.replacement, o.cites]).filter(Boolean)]);
@@ -168,7 +172,7 @@ export function compose(cat, spec) {
       includes: (spec.includes ?? []).map(i => ({ ref: i.ref, mode: i.mode, base: Boolean(i.base) })),
     },
     parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, staleReferences, influences, breaches,
-    enforcement, roles, socioship, operations, resolution: spec.resolution ?? [], specialis, provenance,
+    enforcement, roles, socioship, operations, resolution: spec.resolution ?? [], specialis, provenance, code,
     nanos: Object.fromEntries(byRid(described).map(ref => [ref, nanoOf(ref)])),
   };
 }

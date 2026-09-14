@@ -290,6 +290,14 @@ button.chip { background: var(--surface); cursor: pointer; }
 button.chip:hover { border-color: var(--accent); color: var(--accent); }
 .chip.toggle.on { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
 
+/* ── Code: the platform's units of software ───────────────────────────── */
+details.unit { border-top: 1px solid var(--rule); padding-block: 4px; }
+details.unit > summary { cursor: pointer; font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+pre.code {
+  margin: 6px 0 4px; padding: 10px 12px; overflow-x: auto; background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 4px; font: 12px/1.5 var(--mono); color: var(--ink); tab-size: 2;
+}
+
 /* ── Concordance: the composer's concepts beside their precedents ────── */
 .concordance { width: 100%; border-collapse: collapse; font-size: 14px; }
 .concordance th {

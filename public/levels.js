@@ -12,7 +12,7 @@ const query = new URLSearchParams(location.search);
 const list = (param, allowed, fallback) => new Set((query.get(param) ?? fallback).split(',').filter(x => Object.hasOwn(allowed, x)));
 const state = {
   scope: query.get('scope') ?? 'all',
-  levels: list('levels', LEVELS, store === 'system' ? 'milli,micro,pico' : 'milli,micro,nano'),
+  levels: list('levels', LEVELS, store === 'system' ? 'milli,micro' : 'milli,micro,nano'),   // the platform: its services and files
   relations: list('relations', RELATIONS, Object.keys(RELATIONS).join(',')),
   revisions: query.get('revisions') === 'apart' ? 'apart' : 'merge',
 };
@@ -66,29 +66,44 @@ const style = t => [
   { selector: 'edge[kind = "claims"][relation = "conflicts"]', style: { 'line-color': t.gap, 'target-arrow-shape': 'tee', 'source-arrow-shape': 'tee', 'source-arrow-color': t.gap, 'target-arrow-color': t.gap } },
   { selector: 'edge[kind = "breaches"]', style: { 'line-color': t.gap, 'target-arrow-color': t.gap, width: 1.5 } },
   { selector: 'edge[kind = "influences"]', style: { 'line-color': t.ink3, 'target-arrow-color': t.ink3, width: 1 } },
+  { selector: 'edge[kind = "depends"]', style: { 'line-color': t.ink3, 'target-arrow-color': t.ink3, width: 1, ...edgeLabel(t), 'font-size': 9 } },
+  { selector: 'node[kind = "unit"]', style: { 'font-family': MONO, 'font-size': 10 } },
   { selector: 'edge[kind = "through"]', style: { 'line-style': 'dashed', 'line-dash-pattern': [3, 4], width: 1, opacity: 0.75 } },
   { selector: 'node:selected', style: { 'border-color': t.accent, 'border-width': 4 } },
   { selector: '.faded', style: { opacity: 0.12 } },
 ];
 
-// When one level holds many nodes with few connections among them (a micro's seventy nanos), a flowing layout lays them
-// on one line, far too wide to read. Then each level becomes a band of rows, top to bottom, its nanos grouped by kind
-// with each kind starting a row of its own, the rows as wide as the canvas's proportions allow.
+// A large graph, or one level holding many nodes with few connections among them (a micro's seventy nanos), lays out
+// badly as a flow: far too wide to read. Then each level becomes a band of rows, top to bottom. Within a level, what
+// includes others comes first (a service above its files, a proposal above what it adds); then its nodes are grouped
+// by kind, and units of software by form, each group starting a row of its own, rows as wide as the canvas allows.
 const BANDS = ['milli', 'micro', 'nano', 'pico'];
-const KIND_ORDER = ['intent', 'clause', 'parameter', 'measure', 'assumption', 'consequence'];
+const KIND_ORDER = ['intent', 'clause', 'parameter', 'measure', 'assumption', 'consequence',
+                    'import', 'export', 'function', 'class', 'const', 'let', 'statement', 'table', 'view', 'trigger', 'insert',
+                    'rule', 'media', 'section', 'document', 'tail'];
 function inBands() {
   const W = 190, H = 72, GAP = 90;
   const aspect = Math.max(1, cy.width() / Math.max(1, cy.height()));
+  const depth = new Map();   // the longest chain of inclusions above a node
+  const composes = n => n.outgoers('edge[kind = "composes"]').targets();
+  for (const queue = cy.nodes().filter(n => n.incomers('edge[kind = "composes"]').empty()).map(n => [n, 0]); queue.length;) {
+    const [n, d] = queue.shift();
+    if ((depth.get(n.id()) ?? -1) >= d) continue;
+    depth.set(n.id(), d);
+    composes(n).forEach(t => queue.push([t, d + 1]));
+  }
+  const group = n => (n.data('kind') === 'unit' ? n.data('form') : n.data('kind'));
+  const rank = k => { const i = KIND_ORDER.indexOf(k); return i < 0 ? KIND_ORDER.length : i; };
   const positions = {};
   let y = 0;
   for (const level of BANDS) {
     const band = cy.nodes().filter(n => n.data('level') === level);
     if (!band.length) continue;
     const cols = Math.max(4, Math.ceil(Math.sqrt((band.length * aspect * H) / W)));
-    const rank = k => { const i = KIND_ORDER.indexOf(k); return i < 0 ? KIND_ORDER.length : i; };
-    const kinds = [...new Set(band.map(n => n.data('kind')))].sort((a, b) => rank(a) - rank(b));
-    for (const kind of kinds) {
-      const row = band.filter(n => n.data('kind') === kind).sort((a, b) => a.data('label').localeCompare(b.data('label')));
+    const keys = [...new Set(band.map(n => `${depth.get(n.id()) ?? 0}|${group(n)}`))]
+      .sort((a, b) => Number(a.split('|')[0]) - Number(b.split('|')[0]) || rank(a.split('|')[1]) - rank(b.split('|')[1]));
+    for (const key of keys) {
+      const row = band.filter(n => `${depth.get(n.id()) ?? 0}|${group(n)}` === key).sort((a, b) => a.data('label').localeCompare(b.data('label')));
       row.forEach((n, i) => {
         const inRow = Math.min(cols, row.length - Math.floor(i / cols) * cols);
         positions[n.id()] = { x: ((i % cols) - (inRow - 1) / 2) * W, y: y + Math.floor(i / cols) * H };
@@ -106,7 +121,7 @@ function draw() {
   cy.add([...g.nodes.map(n => ({ group: 'nodes', data: n })), ...g.edges.map((e, i) => ({ group: 'edges', data: { id: `e${i}`, ...e } }))]);
   cy.layout(LAYOUT).run();
   const box = cy.elements().boundingBox();
-  if (box.w > box.h * 3 && cy.nodes().length > 16) inBands();
+  if (cy.nodes().length > 40 || (box.w > box.h * 2.5 && cy.nodes().length > 16)) inBands();
   cy.fit(undefined, 30);
   $('#count').textContent = `${g.nodes.length} nodes · ${g.edges.length} connections`;
   writeUrl();
@@ -120,6 +135,7 @@ const PHRASE = {
   holds: () => 'holds', refines: () => 'refines', uses: () => 'uses', breaches: () => 'if breached, costs',
   claims: e => `${e.data('relation')}${e.data('strength') && e.data('relation') !== 'conflicts' ? ` (${e.data('strength')})` : ''}`,
   influences: e => (e.data('direction') ?? 'bears on').replace(/-/g, ' '), through: () => 'reaches, through hidden levels,',
+  depends: e => e.data('relation') ?? 'uses',
 };
 const LEVEL_WORD = { milli: 'milli', micro: 'micro', nano: 'nano', pico: 'pico' };
 
