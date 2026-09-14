@@ -13,24 +13,42 @@ export function compose(cat, spec) {
   const nanoOf = ref => cat.nanos[ref] ?? (() => { throw fail(`no nano ${ref}`, 404); })();
   const keyOf = c => c.ref ?? '(draft)';
 
-  // Every contract the composition reaches, with its nesting depth (0 = the composition itself) and the include of the
-  // composition it is reached through, which says whether it comes through the base. An abrogated contract is not
-  // reached: the operators of each contract act on what it includes, outer contracts first.
-  const reached = new Map();
-  const abrogated = new Map();   // contract ref → the abrogation
-  const queue = [[spec, 0, null]];
-  while (queue.length) {
-    const [c, depth, via] = queue.shift();
-    const key = keyOf(c);
-    if (abrogated.has(key) || (reached.has(key) && reached.get(key).depth <= depth)) continue;
-    reached.set(key, { c, depth, via });
-    for (const o of c.operations ?? []) if (o.op === 'abrogate' && !abrogated.has(o.contract)) abrogated.set(o.contract, { ...o, by: key });
-    for (const inc of c.includes ?? []) if (!abrogated.has(inc.ref)) queue.push([contractOf(inc.ref), depth + 1, via ?? inc]);
-  }
-  const order = [...reached.values()].sort((a, b) => a.depth - b.depth || (a.c.crid ?? 0) - (b.c.crid ?? 0));
+  // A composition is resolved by declared rules, like a linker resolves symbols, never by the order its includes are
+  // listed in (docs/composition.md). Precedence: the composition itself first; then contracts by nesting depth, the
+  // outermost first; at one depth, the later-composed first. Wherever two contracts decide the same thing, the one with
+  // precedence decides.
+  const precedence = (a, b) => a.depth - b.depth || (b.c.crid ?? Infinity) - (a.c.crid ?? Infinity);
 
-  // Members: every intent, member and parameter any reached contract brings in, with the outermost contract that brings
-  // it. Then the other operators act on them, outer contracts first. Nothing they act on is dropped from view.
+  // Reach, depth by depth. At each depth, in precedence order, a contract is reached unless one with precedence has
+  // abrogated it; a reached contract's abrogations apply to contracts not yet reached. An abrogated contract's own
+  // includes and operators therefore have no effect, unless it is reached some other way first. Each reached contract
+  // keeps the include of the composition it came through, which says whether it comes through the base.
+  const reached = new Map();
+  const abrogated = new Map();   // contract ref → the abrogation that took effect
+  let level = [{ c: spec, depth: 0, via: null }];
+  while (level.length) {
+    const candidates = new Map();
+    for (const x of level) {
+      const key = keyOf(x.c);
+      if (reached.has(key) || abrogated.has(key)) continue;
+      const seen = candidates.get(key);
+      if (!seen || (x.via?.base && !seen.via?.base)) candidates.set(key, x);   // through the base on any path counts
+    }
+    const next = [];
+    for (const x of [...candidates.values()].sort(precedence)) {
+      const key = keyOf(x.c);
+      if (abrogated.has(key)) continue;
+      reached.set(key, x);
+      for (const o of x.c.operations ?? [])
+        if (o.op === 'abrogate' && !reached.has(o.contract) && !abrogated.has(o.contract)) abrogated.set(o.contract, { ...o, by: key });
+      for (const inc of x.c.includes ?? []) next.push({ c: contractOf(inc.ref), depth: x.depth + 1, via: x.via ?? inc });
+    }
+    level = next;
+  }
+  const order = [...reached.values()].sort(precedence);
+
+  // Members: every intent, member and parameter any reached contract brings in; each member's origin is the contract
+  // with precedence that brings it. Nothing an operator acts on is dropped from view.
   const members = new Set(), origin = new Map();
   const bring = (ref, key) => { members.add(ref); if (!origin.has(ref)) origin.set(ref, key); };
   for (const { c } of order) {
@@ -40,8 +58,10 @@ export function compose(cat, spec) {
     Object.keys(c.parameters ?? {}).forEach(p => bring(p, key));
     (c.socioship ?? []).forEach(s => bring(s.nano, key));   // a nano that defines a socioship term is part of the milli
   }
+  // Operators on provisions apply from the lowest precedence to the highest, so for each provision the contract with
+  // precedence has the last word: an included contract's operator can never undo the composition's own.
   const operations = [...abrogated.values()];
-  for (const { c } of order)
+  for (const { c } of [...order].reverse())
     for (const o of c.operations ?? []) {
       if (o.op === 'abrogate') continue;
       if (o.op === 'derogate') members.delete(o.nano);
@@ -66,9 +86,9 @@ export function compose(cat, spec) {
   }));
   const specialis = order.flatMap(({ c }) => c.specialis ?? []);
 
-  // Parameter values: the outermost contract that sets one wins.
+  // Parameter values: the contract with precedence that sets one decides.
   const values = new Map();
-  for (const { c } of [...order].sort((a, b) => a.depth - b.depth || (b.c.crid ?? Infinity) - (a.c.crid ?? Infinity)))
+  for (const { c } of order)
     for (const [ref, value] of Object.entries(c.parameters ?? {})) if (!values.has(ref)) values.set(ref, value);
   const parameters = [...values].map(([ref, value]) => ({ ...nanoOf(ref), value }));
 
@@ -111,7 +131,7 @@ export function compose(cat, spec) {
 
   const clauses = ofKind('clause');
 
-  // Consequences of breach are set by the composition: for each clause, the outermost contract that attaches any decides.
+  // Consequences of breach are set by the composition: for each clause, the contract with precedence that attaches any decides.
   const breachByClause = new Map();
   for (const { c } of order) {
     const attached = new Map();
@@ -121,7 +141,7 @@ export function compose(cat, spec) {
   }
   const breaches = byRid(breachByClause.keys()).map(clause => breachByClause.get(clause));
 
-  // Who detects breaches and applies consequences: set by the composing signatories; the outermost contract decides.
+  // Who detects breaches and applies consequences: set by the composing signatories; the contract with precedence decides.
   const enforcedBy = new Map();
   for (const { c } of order) {
     const assigned = new Map();
@@ -132,7 +152,7 @@ export function compose(cat, spec) {
   const roles = Object.fromEntries((cat.roles ?? []).map(r => [r.id, r.label]));
 
   // Socioship, for a milli: the terms on which it is held (structure every milli fills, from the catalogue), each with
-  // the nanos that define it. For each term, the outermost contract that defines it decides.
+  // the nanos that define it. For each term, the contract with precedence that defines it decides.
   const socioshipBy = new Map();
   for (const { c } of order) {
     const defined = new Map();

@@ -250,6 +250,37 @@ test('a social contract nests, adds, and surfaces clashes, conflicts, gaps and o
   assert.deepEqual(r.checks.orphans, [refs.party]);
 });
 
+test('a composition follows declared rules: the order of includes never matters, and the contract with precedence decides', () => {
+  const { db, refs, contracts } = buildFixture();
+  const add = (id, scale, body) => addContract(db, { id, scale, title: id, filedBy: 'planners', source: 'test', ...body }).ref;
+  const body = snap => JSON.stringify({ ...snap, contract: null });
+  const includes = list => list.map(contract => ({ contract, mode: 'add' }));
+
+  // An abrogation takes effect whatever the order: the repealer, composed later, has precedence over what it repeals.
+  const repealer = add('repealer', 'micro', { operations: [{ op: 'abrogate', contract: contracts.utilities }] });
+  const ab = snapshot(db, add('ab', 'social', { includes: includes([contracts.utilities, repealer]) }));
+  const ba = snapshot(db, add('ba', 'social', { includes: includes([repealer, contracts.utilities]) }));
+  assert.equal(body(ab), body(ba), 'the same composition, whatever the order of its includes');
+  assert.ok(!ab.intents.some(i => i.ref === refs.power), 'utilities is abrogated');
+
+  // Every permutation of a larger composition gives one snapshot.
+  const three = [contracts.streetTrees, contracts.utilities, repealer];
+  const snaps = [[0, 1, 2], [2, 0, 1], [1, 2, 0], [2, 1, 0]].map((p, k) => body(snapshot(db, add(`perm-${k}`, 'social', { includes: includes(p.map(i => three[i])) }))));
+  assert.ok(snaps.every(s => s === snaps[0]), 'no permutation of the includes changes the snapshot');
+
+  // An included contract's operator cannot undo the composition's own.
+  const keeper = add('keeper', 'micro', { operations: [{ op: 'subrogate', contract: contracts.streetTrees, nano: refs.party }] });
+  const derogating = add('derogating', 'social', { includes: includes([contracts.streetTrees, keeper]), operations: [{ op: 'derogate', nano: refs.party }] });
+  assert.ok(!snapshot(db, derogating).clauses.includes(refs.party), 'the composition derogates what an included contract subrogates');
+
+  // At one depth, ties are broken one way everywhere: the later-composed decides parameters and consequences alike.
+  const early = add('early', 'micro', { members: [refs.plant], parameters: { [refs.spacing]: 12 }, breaches: [{ clause: refs.plant, consequence: refs.warning }] });
+  const late = add('late', 'micro', { members: [refs.plant], parameters: { [refs.spacing]: 20 }, breaches: [{ clause: refs.plant, consequence: refs.fine }] });
+  const tie = snapshot(db, add('tie', 'social', { includes: includes([early, late]) }));
+  assert.equal(tie.parameters.find(p => p.ref === refs.spacing).value, 20, 'the later-composed sets the parameter');
+  assert.deepEqual(tie.breaches.find(b => b.clause === refs.plant).consequences, [refs.fine], 'and the consequences, the same way');
+});
+
 test('operators act on what a composition includes, and its maxims resolve the conflicts that remain', () => {
   const { db, refs, contracts } = buildFixture();
   const milli = (id, body) => addContract(db, { id, scale: 'social', title: id, filedBy: 'planners', source: 'test', ...body }).ref;
