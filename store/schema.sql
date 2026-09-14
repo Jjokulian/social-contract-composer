@@ -420,6 +420,48 @@ CREATE TRIGGER IF NOT EXISTS contract_intent_immutable    BEFORE UPDATE ON contr
 CREATE TRIGGER IF NOT EXISTS contract_member_immutable    BEFORE UPDATE ON contract_member    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_parameter_immutable BEFORE UPDATE ON contract_parameter BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 
+-- ─── Demesnes: millis implemented on coordinate spaces ───────────────────────
+-- Picos, nanos, micros and millis are virtual: they take up no space. When the signatories of a milli implement it on
+-- a segment of a coordinate space, that is a demesne; its deme is whoever the milli defines as the deme (not recorded here). Demesnes nest,
+-- as exhaustive segmentations or as islands, and overlap. Which lies within which, and so the layers a viewer shows or
+-- hides, is computed from their segments (public/space.mjs), never stored.
+
+CREATE TABLE IF NOT EXISTS space (      -- a coordinate space: Earth, or any other body in its own frame
+  id    TEXT PRIMARY KEY CHECK (id <> '' AND id NOT GLOB '*[^a-z0-9.-]*'),
+  label TEXT NOT NULL,
+  frame TEXT NOT NULL                   -- what a segment's coordinates mean there
+) STRICT;
+INSERT OR IGNORE INTO space (id, label, frame) VALUES ('earth', 'Earth', 'longitude and latitude in degrees (WGS84)');
+
+CREATE TABLE IF NOT EXISTS demesne (
+  id TEXT PRIMARY KEY CHECK (id <> '' AND id NOT GLOB '*[^a-z0-9.-]*')
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS demesne_rev (
+  drid       INTEGER PRIMARY KEY,
+  demesne_id TEXT    NOT NULL REFERENCES demesne(id),
+  rev        INTEGER NOT NULL CHECK (rev >= 1),
+  name       TEXT    NOT NULL,                             -- the place, in the signatories' words
+  crid       INTEGER NOT NULL REFERENCES contract_rev(crid),   -- the milli implemented, pinned to its revision
+  space_id   TEXT    NOT NULL REFERENCES space(id),
+  segment    TEXT    NOT NULL,                             -- GeoJSON Polygon or MultiPolygon, in the space's frame
+  filed_by   TEXT    NOT NULL REFERENCES author(id),
+  source     TEXT    NOT NULL,
+  created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+  UNIQUE (demesne_id, rev)
+) STRICT;
+
+CREATE TRIGGER IF NOT EXISTS demesne_rev_consecutive BEFORE INSERT ON demesne_rev
+WHEN NEW.rev <> COALESCE((SELECT MAX(rev) FROM demesne_rev WHERE demesne_id = NEW.demesne_id), 0) + 1
+BEGIN SELECT RAISE(ABORT, 'revision numbers must be consecutive per demesne'); END;
+
+CREATE TRIGGER IF NOT EXISTS demesne_rev_milli BEFORE INSERT ON demesne_rev
+WHEN (SELECT k.scale FROM contract_rev c JOIN contract k ON k.id = c.contract_id WHERE c.crid = NEW.crid) IS NOT 'social'
+BEGIN SELECT RAISE(ABORT, 'only a milli is implemented on a coordinate space; a micro is composed into a milli first'); END;
+
+CREATE TRIGGER IF NOT EXISTS demesne_rev_immutable_u BEFORE UPDATE ON demesne_rev BEGIN SELECT RAISE(ABORT, 'demesne revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS demesne_rev_immutable_d BEFORE DELETE ON demesne_rev BEGIN SELECT RAISE(ABORT, 'demesne revisions are immutable: add a new revision'); END;
+
 -- ─── Composition ─────────────────────────────────────────────────────────────
 -- Composition (membership, claims in scope, disagreements, clashes, influences) is computed by public/compose.mjs from
 -- the catalogue, so the server, the static build and the browser share one implementation. The views that used to

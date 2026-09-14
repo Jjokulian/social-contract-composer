@@ -87,6 +87,17 @@ An **influence** records that one measure *raises*, *lowers*, *bears on* or *sta
 - **Tensions** — clauses that support one intent and hinder another.
 - **Disagreements** — with their context diff and class.
 
+## Demesnes: millis implemented on coordinate spaces
+
+Picos, nanos, micros and millis are virtual: they take up no space. A milli defines an entire society; persons who sign it make a socioship, defined fully by its milli. When they implement it on a **segment** of a **coordinate space** (Earth in longitude and latitude, or any other body in its own frame), that is a **demesne**. Its **deme** is whoever its milli defines as the deme. The deme of one layer is not the deme of another: demesnes within a demesne can have different demes.
+
+- `space`: the coordinate spaces, each with the frame its coordinates are in.
+- `demesne` / `demesne_rev`: each revision pins one milli revision and one segment (a GeoJSON Polygon or MultiPolygon) in one space. A trigger refuses a micro: it is composed into a milli first. Revisions are append-only, so a demesne that grows, shrinks or adopts a newer revision of its milli keeps its history. Who is in a demesne's deme, and who are its citizens, is not recorded.
+- Nesting is never stored. `public/space.mjs` computes, from the segments, which demesnes lie within which (their nesting level), which overlap and which only border each other, and whether the demesnes directly within one segment it exhaustively or cover a share of it as islands. A lookup of a point or an area of interest lists every demesne stacked there, from the outermost to the innermost.
+- A **layer** is what a viewer shows or hides: every demesne at one nesting level, or every demesne of one milli. The Globe gives each shown layer its own ground pattern and colours neighbouring demesnes within a layer differently; hiding the layers above frees their patterns for the layers below.
+
+Edges are straight in the space's frame, so a segment crossing the antimeridian is written as two polygons.
+
 ## Contributions through GitHub Issues (planned)
 
 1. **Propose.** Anyone opens an issue from a form: *propose a nano*, *file a claim* or *report an evaluation*.

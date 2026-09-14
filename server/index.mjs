@@ -6,13 +6,16 @@
 //   GET  /api/contracts/:ref/snapshot        everything in scope for the contract; public/evaluate.mjs turns it into a report
 //   GET  /api/societies                      societies that have evaluations
 //   GET  /api/nanos/:ref                     one nano revision
-//   POST /api/nanos, /api/contracts          append to the store (only with COMPOSER_ALLOW_WRITES=1)
+//   GET  /api/demesnes                       every demesne revision (millis implemented on coordinate spaces) and the spaces
+//   GET  /api/spaces/:space/layering         the demesnes on a space, outermost first; ?at=<x>,<y> keeps those stacked at a point
+//   POST /api/nanos, /api/contracts, /api/demesnes   append to the store (only with COMPOSER_ALLOW_WRITES=1)
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openStore, listContracts, catalogue, describe, resolve, addNano, addContract, StoreError } from './store.mjs';
+import { openStore, listContracts, catalogue, describe, resolve, addNano, addContract, addDemesne, listDemesnes, StoreError } from './store.mjs';
 import { report, snapshot } from './checks.mjs';
+import { layering, stackAt } from '../public/space.mjs';
 
 const PORT = Number(process.env.PORT ?? 8800);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -37,7 +40,13 @@ const routes = [
   { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/snapshot$/, run: ([ref]) => snapshot(db, ref) },
   { method: 'GET', path: /^\/api\/societies$/, run: () => db.prepare('SELECT id, label FROM society ORDER BY label').all() },
   { method: 'GET', path: /^\/api\/nanos\/([^/]+)$/, run: ([ref]) => describe(db, resolve(db, ref)) },
+  { method: 'GET', path: /^\/api\/demesnes$/, run: () => listDemesnes(db) },
+  { method: 'GET', path: /^\/api\/spaces\/([^/]+)\/layering$/, run: ([space], query) => {
+    const all = layering(listDemesnes(db).demesnes, space);
+    return query.get('at') ? stackAt(all, query.get('at').split(',').map(Number)) : all;
+  } },
   { method: 'POST', path: /^\/api\/nanos$/, writes: true, run: (_, __, body) => addNano(db, body) },
+  { method: 'POST', path: /^\/api\/demesnes$/, writes: true, run: (_, __, body) => addDemesne(db, body) },
   { method: 'POST', path: /^\/api\/contracts$/, writes: true, run: (_, __, body) => addContract(db, body) },
 ];
 

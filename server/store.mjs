@@ -3,6 +3,7 @@
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { checkSegment } from '../public/space.mjs';
 
 export const DEFAULT_PATH = fileURLToPath(new URL('../store/composer.sqlite', import.meta.url));
 const SCHEMA = readFileSync(new URL('../store/schema.sql', import.meta.url), 'utf8');
@@ -242,6 +243,33 @@ function mergeIntents(intents, additions) {
   return merged;
 }
 
+// ─── Demesnes ────────────────────────────────────────────────────────────────
+
+// Add a revision of a demesne (revision 1 creates it): a milli, implemented on a segment of a coordinate space.
+//   milli:   the milli's revision, e.g. 'town@1' (a micro is refused: it is composed into a milli first)
+//   segment: a GeoJSON Polygon or MultiPolygon in the space's frame
+export function addDemesne(db, { id, name, milli, space, segment, filedBy, source }) {
+  checkSegment(segment);
+  return db.transaction(() => {
+    db.prepare('INSERT INTO demesne (id) VALUES (?) ON CONFLICT (id) DO NOTHING').run(id);
+    const rev = db.prepare('SELECT COALESCE(MAX(rev), 0) + 1 FROM demesne_rev WHERE demesne_id = ?').pluck().get(id);
+    db.prepare('INSERT INTO demesne_rev (demesne_id, rev, name, crid, space_id, segment, filed_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, rev, name, resolveContract(db, milli), space, JSON.stringify(segment), filedBy, source);
+    return { ref: `${id}@${rev}` };
+  })();
+}
+
+// Every demesne revision, and the coordinate spaces. public/space.mjs computes how they nest and the layers to view.
+export function listDemesnes(db) {
+  const spaces = db.prepare('SELECT id, label, frame FROM space ORDER BY label').all();
+  const demesnes = db.prepare(`SELECT d.demesne_id AS id, d.rev, d.demesne_id || '@' || d.rev AS ref, d.name, d.space_id AS space,
+                                      c.contract_id || '@' || c.rev AS milli, c.title AS milliTitle, d.segment,
+                                      d.filed_by AS filedBy, d.source
+                               FROM demesne_rev d JOIN contract_rev c ON c.crid = d.crid ORDER BY d.drid`).all()
+    .map(d => ({ ...d, segment: JSON.parse(d.segment) }));
+  return { spaces, demesnes };
+}
+
 // ─── Reading ─────────────────────────────────────────────────────────────────
 
 const READ = {
@@ -334,7 +362,7 @@ export function catalogue(db) {
                                                        ORDER BY e.observed_on, e.rid`).all())
     (observations[measure] ??= {})[society] = o;   // ascending, so the latest wins
   const societies = db.prepare('SELECT id, label FROM society ORDER BY label').all();
-  return { nanos, contracts, observations, societies, roles };
+  return { nanos, contracts, observations, societies, roles, ...listDemesnes(db) };
 }
 
 export function listContracts(db) {

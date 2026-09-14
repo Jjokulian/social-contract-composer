@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addNano, addContract, reviseContract, catalogue, addVocabulary } from '../server/store.mjs';
+import { addNano, addContract, reviseContract, catalogue, addVocabulary, addDemesne } from '../server/store.mjs';
+import { layering, stackAt, layersOf, paint, relate } from '../public/space.mjs';
+import { EXAMPLE } from '../public/example-demesnes.mjs';
 import { relinkContract } from '../server/relink.mjs';
 import { report, snapshot, evaluate, compose, jointlyImpossible } from '../server/checks.mjs';
 import { buildFixture } from './fixture.mjs';
@@ -246,4 +248,84 @@ test('a social contract nests, adds, and surfaces clashes, conflicts, gaps and o
   assert.deepEqual(r.checks.conflicts, [{ claim: refs.treesVsCables, between: [refs.plant, refs.cables], endorsed: false }]);
   assert.deepEqual(r.checks.gaps, [refs.quiet]);
   assert.deepEqual(r.checks.orphans, [refs.party]);
+});
+
+const square = (x0, y0, x1, y1) => ({ type: 'Polygon', coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] });
+
+test('segments relate as within, equal, overlapping, touching or disjoint', () => {
+  assert.equal(relate(square(0, 0, 2, 2), square(1, 0, 3, 2)), 'overlaps', 'edges running along each other, interiors overlapping');
+  assert.equal(relate(square(0, 0, 1, 1), square(0, 0, 2, 2)), 'within', 'nested in a shared corner');
+  assert.equal(relate(square(0, 0, 2, 2), square(0, 0, 1, 1)), 'contains');
+  assert.equal(relate(square(0, 0, 2, 2), square(0, 0, 2, 2)), 'equal');
+  assert.equal(relate(square(0, 0, 1, 1), square(1, 0, 2, 1)), 'touches', 'a shared border is not an overlap');
+  assert.equal(relate(square(0, 0, 1, 1), square(5, 5, 6, 6)), 'disjoint');
+  const ring = { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]], [[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]]] };
+  assert.equal(relate(square(4.5, 4.5, 5.5, 5.5), ring), 'disjoint', 'inside a hole is outside the segment');
+  assert.equal(relate(square(3, 3, 7, 7), ring), 'overlaps', 'covering a hole is not lying within');
+  assert.equal(relate(square(1, 1, 2, 2), ring), 'within');
+});
+
+test('demesnes nest as segmentations and islands, and layers are shown or hidden', () => {
+  const { db, contracts } = buildFixture();
+  const milli = (id, title) => addContract(db, { id, scale: 'social', title, filedBy: 'planners', source: 'test' }).ref;
+  const defence = milli('defence', 'Defence'), culture = milli('culture', 'Culture'), atmosphere = milli('atmosphere', 'Atmosphere');
+  const demesne = (id, name, m, segment) => addDemesne(db, { id, name, milli: m, space: 'earth', segment, filedBy: 'planners', source: 'test' }).ref;
+  const shield = demesne('shield', 'The shield', defence, square(0, 0, 10, 10));
+  const west = demesne('west', 'The west', culture, square(0, 0, 5, 10));
+  const east = demesne('east', 'The east', culture, square(5, 0, 10, 10));
+  const quiet = demesne('quiet-isle', 'A quiet isle', atmosphere, square(1, 1, 2, 2));
+  const loud = demesne('loud-isle', 'A loud isle', atmosphere, square(6, 6, 7, 7));
+  const coast = demesne('coast', 'The coast', culture, square(9, 4, 12, 6));   // straddles the shield's edge
+
+  const all = layering(catalogue(db).demesnes, 'earth');
+  const of = ref => all.find(d => d.ref === ref);
+  assert.deepEqual([shield, west, east, quiet, loud, coast].map(r => of(r).level), [1, 2, 2, 3, 3, 1]);
+  assert.deepEqual(of(quiet).within, [shield, west], 'outermost first');
+  assert.equal(of(quiet).parent, west);
+  assert.equal(of(shield).segmentation.kind, 'exhaustive', 'the west and the east segment the shield with nothing left over');
+  assert.equal(of(west).segmentation.kind, 'partial', 'an island covers a share of the west');
+  assert.equal(of(west).segmentation.share, 1 / 50);
+  assert.equal(of(quiet).segmentation, null);
+  assert.deepEqual(of(coast).overlaps.sort(), [east, shield].sort());
+  assert.deepEqual(of(west).touches, [east]);
+
+  assert.deepEqual(stackAt(all, [1.5, 1.5]).map(d => d.ref), [shield, west, quiet]);
+  assert.deepEqual(stackAt(all, [11, 5]).map(d => d.ref), [coast]);
+  assert.deepEqual(stackAt(all, [30, 30]), []);
+
+  // Layers by nesting level, or by milli. Hiding the layers above frees their pattern for the layers below.
+  const levels = layersOf(all);
+  assert.deepEqual(levels.map(l => [l.key, l.demesnes.length]), [['1', 2], ['2', 2], ['3', 2]]);
+  const every = paint(all, levels, new Set(['1', '2', '3']));
+  assert.equal(every.get(quiet).pattern, 2);
+  assert.notEqual(every.get(west).colour, every.get(east).colour, 'demesnes that meet in a layer differ in colour');
+  assert.notEqual(every.get(shield).colour, every.get(coast).colour);
+  const deeper = paint(all, levels, new Set(['3']));
+  assert.equal(deeper.get(quiet).pattern, 0, 'with the layers above hidden, the islands take the first pattern');
+  assert.equal(deeper.has(shield), false);
+  assert.deepEqual(layersOf(all, 'milli').map(l => l.label), ['Culture', 'Defence', 'Atmosphere']);
+
+  // A demesne grows by a new revision; the old one is kept.
+  assert.equal(addDemesne(db, { id: 'quiet-isle', name: 'A quiet isle', milli: atmosphere, space: 'earth', segment: square(1, 1, 6, 2),
+    filedBy: 'planners', source: 'test' }).ref, 'quiet-isle@2');
+  const grown = layering(catalogue(db).demesnes, 'earth').find(d => d.id === 'quiet-isle');
+  assert.equal(grown.parent, shield, 'grown across the west and the east, it lies directly within the shield');
+  assert.deepEqual(grown.overlaps.sort(), [east, west].sort());
+  assert.equal(catalogue(db).demesnes.length, 7);
+
+  const input = { name: 'x', space: 'earth', filedBy: 'planners', source: 'test' };
+  assert.throws(() => addDemesne(db, { ...input, id: 'grove', milli: contracts.streetTrees, segment: square(0, 0, 1, 1) }), /only a milli/);
+  assert.throws(() => addDemesne(db, { ...input, id: 'spot', milli: defence, segment: { type: 'Point', coordinates: [1, 1] } }), /Polygon or MultiPolygon/);
+  assert.throws(() => addDemesne(db, { ...input, id: 'open', milli: defence, segment: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1]]] } }),
+    /end where it starts/);
+  assert.throws(() => db.prepare("UPDATE demesne_rev SET name = 'x'").run(), /immutable/);
+});
+
+test('the example demesnes nest as described: a shield segmented exhaustively, with islands within', () => {
+  const all = layering(EXAMPLE, 'earth');
+  const of = id => all.find(d => d.id === `example-${id}`);
+  assert.equal(of('shield').segmentation.kind, 'exhaustive');
+  assert.deepEqual(['shield', 'north-west', 'quiet-quarter', 'silent-garden'].map(id => of(id).level), [1, 2, 3, 4]);
+  for (const id of ['craft-quarter', 'harbour-quarter', 'festival-grounds', 'scholars-quarter', 'market-quarter']) assert.equal(of(id).level, 3, id);
+  assert.equal(of('north-east').segmentation.kind, 'partial');
 });

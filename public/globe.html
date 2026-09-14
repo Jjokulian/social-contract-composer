@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Globe of Demesnes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.8.0/maplibre-gl.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <a class="brand" href="./">Social Contract Composer</a>
+    <div class="bar-controls">
+      <a class="bar-link" href="./">Contracts</a>
+      <a class="bar-link" href="graph.html">Graph</a>
+      <a class="bar-link" href="compose.html">Compose</a>
+      <span class="bar-link current" aria-current="page">Globe</span>
+      <a class="bar-link" href="guide.html">How to read</a>
+      <label class="field">Coordinate space
+        <select id="space"></select>
+      </label>
+    </div>
+  </header>
+
+  <main class="graph-layout">
+    <section class="graph-main" aria-label="Globe of the coordinate space">
+      <div id="map" class="graph-canvas globe-canvas" role="application" aria-label="Globe with the demesnes in the layers shown. Click a place to list every demesne stacked there; the same lists are in the panel."></div>
+      <p class="graph-legend">Each shown layer has its own ground pattern; within a layer, neighbouring demesnes differ in colour. Hide the layers above to free their patterns for the layers below.</p>
+    </section>
+    <aside class="panel graph-panel" id="details" aria-live="polite"></aside>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.8.0/maplibre-gl.min.js"></script>
+  <script type="module" src="globe.js"></script>
+</body>
+</html>

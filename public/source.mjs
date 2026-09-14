@@ -13,11 +13,13 @@ const SOURCES = {
     contracts: () => getJSON('api/contracts'),
     societies: () => getJSON('api/societies'),
     snapshot: id => getJSON(`api/contracts/${encodeURIComponent(id)}/snapshot`),
+    demesnes: () => getJSON('api/demesnes'),
   },
   static: {
     contracts: () => getJSON('data/contracts.json'),
     societies: () => getJSON('data/societies.json'),
     snapshot: id => getJSON(`data/snapshots/${encodeURIComponent(id)}.json`),
+    demesnes: () => getJSON('data/demesnes.json'),
   },
 };
 
