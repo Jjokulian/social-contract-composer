@@ -164,6 +164,10 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
   tree.forEach(walk);
   const targets = (from, relation) => [...new Set(standing.filter(c => c.from === from && c.relation === relation).map(c => c.to))];
 
+  // Socioship, for a milli: each term is defined by its nanos, held by its default, or a gap.
+  const socioship = snap.socioship?.map(t => ({ ...t, status: t.nanos.length ? 'defined' : t.defaultRule ? 'default' : 'gap' })) ?? null;
+  const definesSocioship = new Set((snap.socioship ?? []).flatMap(t => t.nanos));
+
   const checks = {
     conflicts: claims.filter(c => c.active && c.relation === 'conflicts')
       .map(c => ({ claim: c.ref, between: [c.from, c.to], endorsed: c.endorsed })),
@@ -171,18 +175,21 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
     staleReferences: snap.staleReferences,   // nanos written with another revision of a pico than the composition defines
     gaps: flat.filter(n => n.coverage === 'gap').map(n => n.ref),
     thin: flat.filter(n => n.coverage === 'thin').map(n => n.ref),
-    // A clause serves an intent directly (it is a claim's `from`) or as a precondition (it is in a claim's `given`).
-    orphans: snap.clauses.filter(cl => !standing.some(c => c.relation !== 'conflicts' && (c.from === cl || c.given.includes(cl)))),
+    // A clause serves an intent directly (it is a claim's `from`) or as a precondition (it is in a claim's `given`), or it
+    // serves the milli's structure by defining a term of its socioship.
+    orphans: snap.clauses.filter(cl => !definesSocioship.has(cl)
+      && !standing.some(c => c.relation !== 'conflicts' && (c.from === cl || c.given.includes(cl)))),
     tensions: snap.clauses.map(cl => ({ clause: cl, supports: targets(cl, 'supports'), hinders: targets(cl, 'hinders') }))
       .filter(t => t.hinders.length),
     disagreements,
     refinements,
     // A consequence is only real if someone detects the breach: clauses with consequences but no one assigned to that work.
     unenforced: snap.breaches.filter(b => !snap.enforcement.some(e => e.clause === b.clause)).map(b => b.clause),
+    socioshipGaps: (socioship ?? []).filter(t => t.status === 'gap').map(t => t.id),
   };
 
   return {
-    contract: snap.contract, society, parameters, tree, checks,
+    contract: snap.contract, society, parameters, tree, checks, socioship,
     influences: snap.influences,
     breaches: snap.breaches,
     enforcement: snap.enforcement,

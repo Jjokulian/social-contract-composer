@@ -87,6 +87,10 @@ An **influence** records that one measure *raises*, *lowers*, *bears on* or *sta
 - **Tensions** — clauses that support one intent and hinder another.
 - **Disagreements** — with their context diff and class.
 
+## Socioship: structure every milli fills
+
+Socioship is the relation of having signed a milli together with other persons. It is structure, not content: no contract holds it. `socioship_term` lists the terms every milli defines (how a new signature takes effect, how the born join, the conditions of socioship, how it is lost, what is kept, who the deme is), and `contract_socioship` records which of a milli's clauses or definitions define each. A trigger refuses them on a micro. The composition carries each term from the outermost contract that defines it; the report marks it defined, held by its default (only admission has one: every signatoree signs too), or a gap. A clause that defines a term serves the milli's structure, so it is never an orphan.
+
 ## Demesnes: millis implemented on coordinate spaces
 
 Picos, nanos, micros and millis are virtual: they take up no space. A milli defines an entire society; persons who sign it make a socioship, defined fully by its milli. When they implement it on a **segment** of a **coordinate space** (Earth in longitude and latitude, or any other body in its own frame), that is a **demesne**. Its **deme** is whoever its milli defines as the deme. The deme of one layer is not the deme of another: demesnes within a demesne can have different demes.

@@ -99,6 +99,9 @@ const bindingChip = b => BINDING[b] ? `<span class="binding ${b}" title="${BINDI
 
 const DIRECTION = { 'raises': 'raises', 'lowers': 'lowers', 'bears-on': 'bears on', 'stands-in-for': 'stands in for' };
 
+// A socioship term's state, shown with the coverage marks: [mark, words].
+const SOCIOSHIP = { defined: ['claimed', 'defined'], default: ['thin', 'default holds'], gap: ['gap', 'not defined'] };
+
 function renderReport(r) {
   const nano = ref => r.nanos[ref] ?? r.claims[ref] ?? { ref };
   const named = ref => `<span title="${esc(nano(ref).text ?? nano(ref).statement ?? ref)}">${esc(humanize(ref))}</span>`;
@@ -251,6 +254,17 @@ function renderReport(r) {
         return `<div class="finding"><h3>${heading}</h3><dl class="ctx">${roles.map(role => `<dt>${esc(role)}</dt><dd>${clauses.filter(c => c.roleLabel === role)
           .map(c => `${terms(c.text, c)}${kind === 'abide' ? (r.enforcement.some(e => e.clause === c.ref) ? '' : ' <span class="fails">· no one assigned to detect breaches</span>') : ''}`).join('<br>')}</dd>`).join('')}</dl></div>`;
       }).join('') || empty('This composition has no clauses yet.')),
+    r.socioship ? section('socioship', 'Socioship', 'Socioship is having signed this milli together with other persons. Every milli defines the terms on which it is held. Only persons sign it and are its parties.',
+      r.socioship.map(t => `
+        <div class="finding">
+          <h3>${esc(t.label)} <span class="cov ${SOCIOSHIP[t.status][0]}">${SOCIOSHIP[t.status][1]}</span></h3>
+          <p class="settled" style="margin:0">${esc(t.asks)}</p>
+          ${t.status === 'defined'
+            ? t.nanos.map(ref => `<p class="clause-text" style="margin:0">${nano(ref).kind === 'clause' ? clause(ref) : terms(nano(ref).meaning, nano(ref))}</p>`).join('')
+              + (t.setBy !== r.contract.ref ? `<p class="ref" style="margin:0">set by ${esc(t.setBy)}</p>` : '')
+            : t.status === 'default' ? `<p class="rationale" style="margin:0">Until this milli defines otherwise: ${esc(t.defaultRule)}</p>`
+            : '<p class="fails" style="margin:0">This milli doesn’t define it yet.</p>'}
+        </div>`).join('')) : '',
     section('disagreements', 'Disagreements', 'Claims about the same clause and intent that reach different conclusions, with the context that separates them.',
       checks.disagreements.length ? checks.disagreements.map(disagreementHtml).join('')
         : empty('None yet. When anyone files a counter-claim, it appears here with the difference in context that explains it.')),
@@ -357,6 +371,7 @@ function renderPanel(r) {
     ['determinants', 'Influences recorded', r.influences.length],
     ['breaches', 'Clauses with consequences', r.breaches.length],
     ['breaches', 'Consequences no one detects', c.unenforced.length],
+    ...(r.socioship ? [['socioship', 'Socioship terms not defined', c.socioshipGaps.length]] : []),
     ['structure', 'Orphan clauses', c.orphans.length],
     ['structure', 'Conflicts', c.conflicts.length],
     ['structure', 'Definition clashes', c.definitionClashes.length],

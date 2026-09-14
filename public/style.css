@@ -285,6 +285,7 @@ details.claims > summary:hover { text-decoration: underline; }
 .chip { display: inline-flex; align-items: center; gap: 4px; font: 500 12px var(--sans); color: var(--ink-2); border: 1px solid var(--rule-strong); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
 .chip.consequence { border-color: var(--gap); color: var(--ink); }
 .chip.inherited { border-style: dashed; color: var(--ink-2); }
+.chip.gap { border-color: var(--gap); color: var(--ink); }
 .breach-row { flex-wrap: wrap; }
 .breach-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; }
 .breach-chips select, .claim-edit select { font: 13px var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 4px; padding: 3px 6px; }

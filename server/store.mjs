@@ -149,7 +149,8 @@ export function addNano(db, { id, kind, filedBy, source, picos = [], ...body }) 
 //   parameters: { ref: value }
 //   includes:   [{ contract: ref, mode: 'nest'|'add', under?: intent ref }]
 export function addContract(db, { id, scale, title, status = 'draft', filedBy, source,
-                                  intents = [], members = [], parameters = {}, includes = [], breaches = [], enforcement = [] }) {
+                                  intents = [], members = [], parameters = {}, includes = [], breaches = [], enforcement = [],
+                                  socioship = [] }) {
   return db.transaction(() => {
     const existing = db.prepare('SELECT scale FROM contract WHERE id = ?').pluck().get(id);
     if (existing && existing !== scale) throw new StoreError(`${id} is already a ${existing} contract`);
@@ -185,6 +186,8 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
         .run(crid, resolve(db, b.clause, 'clause'), resolve(db, b.consequence, 'consequence'));
     for (const e of enforcement)   // who detects breaches and applies consequences, set by this composition
       db.prepare('INSERT INTO contract_enforcement (crid, clause_rid, role_id) VALUES (?, ?, ?)').run(crid, resolve(db, e.clause, 'clause'), e.by);
+    for (const s of socioship)   // for a milli: which of its clauses or definitions define each term of its socioship
+      db.prepare('INSERT INTO contract_socioship (crid, term_id, nano_rid) VALUES (?, ?, ?)').run(crid, s.term, resolve(db, s.nano));
     return { ref: `${id}@${rev}`, crid };
   })();
 }
@@ -195,7 +198,7 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
 //   addIntents: [{ ref, combine?, parent? }]
 //   dropEdges:  [{ child, parent }]                                     — refinements to remove, by current references
 export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], dropEdges = [], addBreaches = [], addEnforcement = [],
-                                         filedBy, source, title, status } = {}) {
+                                         addSocioship = [], filedBy, source, title, status } = {}) {
   const crid = resolveContract(db, id);
   const current = db.prepare(`SELECT c.contract_id AS id, c.title, c.status, k.scale FROM contract_rev c
                                JOIN contract k ON k.id = c.contract_id WHERE c.crid = ?`).get(crid);
@@ -227,6 +230,11 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
       ...db.prepare('SELECT clause_rid, role_id FROM contract_enforcement WHERE crid = ?').all(crid)
         .map(e => ({ clause: swap(refOf(db, e.clause_rid)), by: e.role_id })),
       ...addEnforcement,
+    ],
+    socioship: [
+      ...db.prepare('SELECT term_id, nano_rid FROM contract_socioship WHERE crid = ?').all(crid)
+        .map(s => ({ term: s.term_id, nano: swap(refOf(db, s.nano_rid)) })),
+      ...addSocioship,
     ],
   });
 }
@@ -352,6 +360,8 @@ export function catalogue(db) {
       .map(b => ({ clause: refOf(db, b.clause_rid), consequence: refOf(db, b.consequence_rid) }));
     c.enforcement = db.prepare('SELECT clause_rid, role_id FROM contract_enforcement WHERE crid = ? ORDER BY clause_rid, role_id').all(c.crid)
       .map(e => ({ clause: refOf(db, e.clause_rid), by: e.role_id }));
+    c.socioship = db.prepare('SELECT term_id, nano_rid FROM contract_socioship WHERE crid = ? ORDER BY term_id, nano_rid').all(c.crid)
+      .map(s => ({ term: s.term_id, nano: refOf(db, s.nano_rid) }));
     contracts[c.ref] = c;
   }
   const roles = db.prepare('SELECT id, label FROM role ORDER BY label').all();
@@ -362,12 +372,15 @@ export function catalogue(db) {
                                                        ORDER BY e.observed_on, e.rid`).all())
     (observations[measure] ??= {})[society] = o;   // ascending, so the latest wins
   const societies = db.prepare('SELECT id, label FROM society ORDER BY label').all();
-  return { nanos, contracts, observations, societies, roles, ...listDemesnes(db) };
+  // Socioship is structure: the terms every milli defines, in order.
+  const socioshipTerms = db.prepare('SELECT id, label, asks, default_rule AS defaultRule FROM socioship_term ORDER BY position').all();
+  return { nanos, contracts, observations, societies, roles, socioshipTerms, ...listDemesnes(db) };
 }
 
 export function listContracts(db) {
   return db.prepare(`SELECT c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c.source
                      FROM contract_rev c JOIN contract k ON k.id = c.contract_id
                      WHERE c.rev = (SELECT MAX(rev) FROM contract_rev x WHERE x.contract_id = c.contract_id)
+                       AND c.status <> 'retired'   -- a retired contract stays in the catalogue and its history, but leaves the list
                      ORDER BY k.scale DESC, c.title`).all();
 }

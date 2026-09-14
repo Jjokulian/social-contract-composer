@@ -24,7 +24,7 @@ async function getJSON(path) {
 const loadCatalogue = () => getJSON('api/config').then(() => getJSON('api/catalogue'), () => getJSON('data/catalogue.json'));
 
 const latest = list => { const by = new Map(); for (const x of list) if (!by.has(x.id) || by.get(x.id).rev < x.rev) by.set(x.id, x); return [...by.values()]; };
-const latestContracts = () => latest(Object.values(cat.contracts));
+const latestContracts = () => latest(Object.values(cat.contracts)).filter(c => c.status !== 'retired');
 const latestNanos = kind => latest(Object.values(cat.nanos).filter(n => n.kind === kind));
 const everything = () => ({ ...cat.nanos, ...draft.nanos });
 const nano = ref => everything()[ref] ?? { ref };
@@ -33,7 +33,7 @@ const text = n => n.statement ?? n.text ?? n.meaning ?? n.label ?? n.ref;
 // ─── Drafts ──────────────────────────────────────────────────────────────────
 
 const blank = () => ({ id: 'draft', scale: 'social', title: 'My Social Contract', territory: '', status: 'draft',
-  intents: [], edges: [], members: [], parameters: {}, includes: [], breaches: [], enforcement: [], nanos: {} });
+  intents: [], edges: [], members: [], parameters: {}, includes: [], breaches: [], enforcement: [], socioship: [], nanos: {} });
 
 const BINDING_TIP = { work: 'Work to carry out', abide: 'A rule to abide by; breaches must be detected', liberty: 'A liberty; no one is bound to act' };
 const bindingChip = n => n.binding ? `<span class="binding ${n.binding}" title="${BINDING_TIP[n.binding]}">${n.binding}</span>` : '';
@@ -97,7 +97,10 @@ const ops = {
     for (const c of Object.values(draft.nanos)) if (c.from === ref) ops.removeClaim(c.ref);
     draft.members = draft.members.filter(m => m !== ref);
     draft.breaches = draft.breaches.filter(b => b.clause !== ref);
+    draft.socioship = draft.socioship.filter(s => s.nano !== ref);
   },
+  define(term, ref) { if (!draft.socioship.some(s => s.term === term && s.nano === ref)) draft.socioship.push({ term, nano: ref }); },
+  undefine(term, ref) { draft.socioship = draft.socioship.filter(s => !(s.term === term && s.nano === ref)); },
   removeClaim(ref) { delete draft.nanos[ref]; draft.members = draft.members.filter(m => m !== ref); },
   detach(clause, consequence) { draft.breaches = draft.breaches.filter(b => !(b.clause === clause && b.consequence === consequence)); },
 };
@@ -189,6 +192,7 @@ function renderCanvas(out) {
   const clauses = out?.snap.clauses ?? [];
   const inherited = new Map((out?.r.breaches ?? []).filter(b => b.setBy !== '(draft)').map(b => [b.clause, b]));
   const consequences = latestNanos('consequence');
+  const definers = [...clauses, ...Object.values(out?.snap.nanos ?? {}).filter(n => n.kind === 'definition').map(n => n.ref)];
 
   $('#canvas-body').innerHTML = `
     <div class="drop" data-drop="root">Drop a contract, intent, clause or definition here. Drop onto an intent to nest a contract, refine the intent, or claim that a clause serves it.</div>
@@ -247,6 +251,27 @@ function renderCanvas(out) {
             </span>
           </li>`;
       }).join('')}</ul>` : '<p class="empty">No clauses in the composition yet.</p>'}
+    </section>
+
+    <section class="canvas-section"><h2>Socioship</h2>
+      <p class="lede">Socioship is having signed your milli together with other persons. Your milli defines the terms on which it is held: pick the clauses or definitions that define each. A term you leave undefined is a gap, unless it has a default.</p>
+      <ul class="rows">${(cat.socioshipTerms ?? []).map(t => {
+        const own = draft.socioship.filter(s => s.term === t.id);
+        const got = out?.r.socioship?.find(x => x.id === t.id);
+        const theirs = own.length || !got?.setBy || got.setBy === '(draft)' ? [] : got.nanos;
+        return `
+          <li class="row breach-row">
+            <span class="row-text"><strong>${esc(t.label)}</strong><br><span class="lib-hint">${esc(t.asks)}</span></span>
+            <span class="breach-chips">
+              ${own.map(s => `<span class="chip">${esc(short(text(nano(s.nano)), 60))}<button type="button" class="x" data-action="undefine" data-term="${esc(t.id)}" data-ref="${esc(s.nano)}" aria-label="Remove">×</button></span>`).join('')}
+              ${theirs.map(n => `<span class="chip inherited" title="set by ${esc(got.setBy)}">${esc(short(text(nano(n)), 60))}</span>`).join('')}
+              ${own.length || theirs.length ? '' : t.defaultRule ? `<span class="chip inherited" title="${esc(t.defaultRule)}">default holds</span>` : '<span class="chip gap">not defined</span>'}
+              <select data-action="define" data-term="${esc(t.id)}" aria-label="Define “${esc(t.label)}” with">
+                <option value="">Defined by…</option>${definers.map(ref => `<option value="${esc(ref)}">${esc(short(text(nano(ref)), 70))}</option>`).join('')}
+              </select>
+            </span>
+          </li>`;
+      }).join('')}</ul>
     </section>`;
 }
 
@@ -268,7 +293,7 @@ function renderReport() {
   const rows = [
     ['Conflicts', c.conflicts.length], ['Definition clashes', c.definitionClashes.length], ['Intents with a gap', c.gaps.length],
     ['Tensions', c.tensions.length], ['Disagreements', c.disagreements.length], ['Clauses with consequences', r.breaches.length],
-    ['Consequences no one detects', c.unenforced.length],
+    ['Consequences no one detects', c.unenforced.length], ['Socioship terms not defined', c.socioshipGaps.length],
   ];
   $('#report').innerHTML = `
     <section>
@@ -305,6 +330,10 @@ function submit() {
     '**Own clauses and definitions**', bullets(draft.members.filter(m => !draft.nanos[m]).map(m => `${short(text(nano(m)), 120)} (\`${m}\`)`)), '',
     '**Consequences of breach**', bullets(draft.breaches.map(b => `\`${b.clause}\` → ${text(nano(b.consequence))}`)), '',
     '**Who detects breaches**', bullets(draft.enforcement.map(e => `\`${e.clause}\` → ${e.by.map(roleLabel).join(', ')}`)), '',
+    '**Socioship**', bullets((cat.socioshipTerms ?? []).map(t => {
+      const own = draft.socioship.filter(s => s.term === t.id);
+      return `${t.label}: ${own.length ? own.map(s => `\`${s.nano}\``).join(', ') : t.defaultRule ? 'the default holds' : 'not defined'}`;
+    })), '',
     '**Claims**', bullets(Object.values(draft.nanos).map(c => `\`${c.from}\` ${c.relation} \`${c.to}\`: ${c.rationale || 'no rationale given'}`)), '',
     '<details><summary>Composition, for digesting</summary>', '', '```json', JSON.stringify(draft), '```', '', '</details>',
   ].join('\n');
@@ -349,7 +378,7 @@ document.addEventListener('drop', e => {
 document.addEventListener('click', e => {
   const b = e.target.closest?.('button[data-action]');
   if (!b) return;
-  const { action, ref, type, clause } = b.dataset;
+  const { action, ref, type, clause, term } = b.dataset;
   if (action === 'add') return dropOn('root', null, { type, ref });
   if (action === 'submit') return submit();
   if (action === 'reset') { draft = example(); fillHead(); }
@@ -359,6 +388,7 @@ document.addEventListener('click', e => {
   else if (action === 'remove-member') ops.removeMember(ref);
   else if (action === 'remove-claim') ops.removeClaim(ref);
   else if (action === 'detach') ops.detach(clause, ref);
+  else if (action === 'undefine') ops.undefine(term, ref);
   else return;
   change();
 });
@@ -366,6 +396,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const el = e.target;
   if (el.dataset?.action === 'attach' && el.value) { ops.attach(el.dataset.clause, el.value); change(); }
+  else if (el.dataset?.action === 'define' && el.value) { ops.define(el.dataset.term, el.value); change(); }
   else if (el.dataset?.action === 'relation') { draft.nanos[el.dataset.ref].relation = el.value; change(); }
   else if (el.dataset?.action === 'rationale') { draft.nanos[el.dataset.ref].rationale = el.value; save(); }
   else if (el.dataset?.action === 'enforcer') {

@@ -30,6 +30,7 @@ export function compose(cat, spec) {
     c.intents.forEach(i => members.add(i.ref));
     c.members.forEach(m => members.add(m));
     Object.keys(c.parameters ?? {}).forEach(p => members.add(p));
+    (c.socioship ?? []).forEach(s => members.add(s.nano));   // a nano that defines a socioship term is part of the milli
   }
   members.forEach(nanoOf);
   const has = ref => members.has(ref);
@@ -95,6 +96,18 @@ export function compose(cat, spec) {
   const enforcement = byRid(enforcedBy.keys()).map(clause => enforcedBy.get(clause));
   const roles = Object.fromEntries((cat.roles ?? []).map(r => [r.id, r.label]));
 
+  // Socioship, for a milli: the terms on which it is held (structure every milli fills, from the catalogue), each with
+  // the nanos that define it. For each term, the outermost contract that defines it decides.
+  const socioshipBy = new Map();
+  for (const { c } of order) {
+    const defined = new Map();
+    for (const s of c.socioship ?? []) defined.set(s.term, [...(defined.get(s.term) ?? []), s.nano]);
+    for (const [term, nanos] of defined) if (!socioshipBy.has(term)) socioshipBy.set(term, { nanos, setBy: c.ref ?? '(draft)' });
+  }
+  const socioship = spec.scale === 'social'
+    ? (cat.socioshipTerms ?? []).map(t => ({ ...t, ...(socioshipBy.get(t.id) ?? { nanos: [], setBy: null }) }))
+    : null;
+
   const described = new Set([...members, ...claims.map(c => c.ref), ...claims.flatMap(c => c.measuredBy), ...influences,
                              ...breaches.flatMap(b => b.consequences)]);
 
@@ -125,7 +138,7 @@ export function compose(cat, spec) {
       includes: (spec.includes ?? []).map(i => ({ ref: i.ref, mode: i.mode })),
     },
     parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, staleReferences, influences, breaches,
-    enforcement, roles,
+    enforcement, roles, socioship,
     nanos: Object.fromEntries(byRid(described).map(ref => [ref, nanoOf(ref)])),
   };
 }

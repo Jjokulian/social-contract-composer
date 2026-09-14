@@ -420,6 +420,42 @@ CREATE TRIGGER IF NOT EXISTS contract_intent_immutable    BEFORE UPDATE ON contr
 CREATE TRIGGER IF NOT EXISTS contract_member_immutable    BEFORE UPDATE ON contract_member    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_parameter_immutable BEFORE UPDATE ON contract_parameter BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 
+-- ─── Socioship: the relation of having signed a milli ────────────────────────
+-- Socioship is structure, not content. Every milli defines the terms on which its socioship is held: these are the
+-- terms, and contract_socioship records which of a milli's clauses or definitions define each. A term with a default
+-- holds by it until the milli defines otherwise; any other term the milli leaves undefined shows as a gap.
+
+CREATE TABLE IF NOT EXISTS socioship_term (
+  id           TEXT    PRIMARY KEY,
+  position     INTEGER NOT NULL,
+  label        TEXT    NOT NULL,
+  asks         TEXT    NOT NULL,        -- what every milli defines
+  default_rule TEXT                     -- what holds while the milli defines nothing else; NULL: a gap until it does
+) STRICT;
+INSERT OR IGNORE INTO socioship_term (id, position, label, asks, default_rule) VALUES
+  ('admission', 1, 'How a new signature takes effect',
+   'How a person comes to be a signatory, and whose signatures a new signature needs. The milli may defer it, for example to persons in positions the signatories agree to, or state that signatories do not need it.',
+   'A new signature takes effect only when all its signatorees sign too, and no one is made a signatory of the milli by others.'),
+  ('born', 2, 'How the born join', 'How those born in its demesnes are included, initiated or become cosignatories of the milli.', NULL),
+  ('conditions', 3, 'Conditions of socioship', 'The conditions on which socioship is held: the duties whose breach can withdraw it.', NULL),
+  ('lost', 4, 'How socioship is lost', 'How socioship is lost, including any deference to persons in positions the signatories agree to, such as judges, deciding case by case.', NULL),
+  ('kept', 5, 'What is kept', 'What a person keeps when socioship is lost.', NULL),
+  ('deme', 6, 'Who the deme is', 'Who the deme of its demesnes is.', NULL);
+
+CREATE TABLE IF NOT EXISTS contract_socioship (
+  crid     INTEGER NOT NULL REFERENCES contract_rev(crid),
+  term_id  TEXT    NOT NULL REFERENCES socioship_term(id),
+  nano_rid INTEGER NOT NULL REFERENCES revision(rid),
+  PRIMARY KEY (crid, term_id, nano_rid)
+) STRICT;
+
+CREATE TRIGGER IF NOT EXISTS contract_socioship_kind BEFORE INSERT ON contract_socioship
+WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.nano_rid) NOT IN ('clause', 'definition')
+  OR (SELECT k.scale FROM contract_rev c JOIN contract k ON k.id = c.contract_id WHERE c.crid = NEW.crid) IS NOT 'social'
+BEGIN SELECT RAISE(ABORT, 'socioship terms are defined by a milli, with its clauses or definitions'); END;
+
+CREATE TRIGGER IF NOT EXISTS contract_socioship_immutable BEFORE UPDATE ON contract_socioship BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
+
 -- ─── Demesnes: millis implemented on coordinate spaces ───────────────────────
 -- Picos, nanos, micros and millis are virtual: they take up no space. When the signatories of a milli implement it on
 -- a segment of a coordinate space, that is a demesne; its deme is whoever the milli defines as the deme (not recorded here). Demesnes nest,

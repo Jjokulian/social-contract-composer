@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addNano, addContract, reviseContract, catalogue, addVocabulary, addDemesne } from '../server/store.mjs';
+import { addNano, addContract, reviseContract, catalogue, addVocabulary, addDemesne, listContracts } from '../server/store.mjs';
 import { layering, stackAt, layersOf, paint, relate } from '../public/space.mjs';
 import { EXAMPLE } from '../public/example-demesnes.mjs';
 import { relinkContract } from '../server/relink.mjs';
@@ -248,6 +248,40 @@ test('a social contract nests, adds, and surfaces clashes, conflicts, gaps and o
   assert.deepEqual(r.checks.conflicts, [{ claim: refs.treesVsCables, between: [refs.plant, refs.cables], endorsed: false }]);
   assert.deepEqual(r.checks.gaps, [refs.quiet]);
   assert.deepEqual(r.checks.orphans, [refs.party]);
+});
+
+test('socioship is structure: every milli defines its terms, and what it leaves undefined is a gap', () => {
+  const { db, contracts } = buildFixture();
+  addVocabulary(db, 'role', 'resident', 'A resident of the town');
+  const charter = addNano(db, { id: 'keep-the-charter', kind: 'clause', role: 'resident', modality: 'shall', binding: 'abide',
+    text: 'Keep the town charter to keep a place in the town.', filedBy: 'planners', source: 'test' }).ref;
+  const chartered = reviseContract(db, 'town', { addSocioship: [{ term: 'conditions', nano: charter }], filedBy: 'planners', source: 'test' }).ref;
+  const r = report(db, chartered);
+  const term = id => r.socioship.find(t => t.id === id);
+  assert.deepEqual(r.socioship.map(t => t.id), ['admission', 'born', 'conditions', 'lost', 'kept', 'deme']);
+  assert.equal(term('conditions').status, 'defined');
+  assert.deepEqual(term('conditions').nanos, [charter]);
+  assert.equal(term('admission').status, 'default', 'every signatoree signs too, unless the milli says otherwise');
+  assert.deepEqual(r.checks.socioshipGaps, ['born', 'lost', 'kept', 'deme']);
+  assert.ok(r.clauses.includes(charter), 'a clause that defines socioship is one of the milli’s clauses');
+  assert.ok(!r.checks.orphans.includes(charter), 'it serves the milli’s structure, so it is no orphan');
+
+  // A milli that includes this one takes its terms, unless it defines them itself.
+  const region = addContract(db, { id: 'region', scale: 'social', title: 'Region', filedBy: 'planners', source: 'test',
+    includes: [{ contract: chartered, mode: 'add' }] }).ref;
+  assert.equal(report(db, region).socioship.find(t => t.id === 'conditions').setBy, chartered);
+
+  // A micro has no socioship: it is composed into a milli first.
+  assert.equal(report(db, contracts.streetTrees).socioship, null);
+  assert.throws(() => addContract(db, { id: 'loose', scale: 'micro', title: 'x', filedBy: 'planners', source: 'test',
+    socioship: [{ term: 'conditions', nano: charter }] }), /defined by a milli/);
+  assert.throws(() => reviseContract(db, 'town', { addSocioship: [{ term: 'citizenship', nano: charter }], filedBy: 'planners', source: 'test' }),
+    /FOREIGN KEY/);
+
+  // A retired contract leaves the list, and stays in the catalogue.
+  reviseContract(db, 'utilities', { status: 'retired', filedBy: 'utility', source: 'test' });
+  assert.ok(!listContracts(db).some(c => c.id === 'utilities'));
+  assert.equal(catalogue(db).contracts['utilities@2'].status, 'retired');
 });
 
 const square = (x0, y0, x1, y1) => ({ type: 'Polygon', coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] });
