@@ -5,7 +5,7 @@ A composer of social contracts. The scale: a **milli** is a composed Social Cont
 ## Where things are
 
 - `store/composer.sqlite`: the store, and the only copy of the data. `store/schema.sql` has the schema and integrity triggers.
-- `store/system.sqlite`: the platform's own store, in the same schema: the composer's vocabulary (the `vocabulary` micro) and the `social-contract-composer` application milli. In software terms a pico is a logical unit, a nano a functional unit, a micro a service, a milli an application and a demesne its implementation.
+- `store/system.sqlite`: the platform's own store, in the same schema: the composer's vocabulary (the `vocabulary` micro) and the `social-contract-composer` application milli. In software terms a pico is a logical unit, a nano a functional unit, a micro a service, a milli an application and a demesne its implementation. The server reads it with `?store=system` on any route, the static build bakes it into `dist/data/system/`, and the Contracts and Graph views switch to it with their Store control.
 - `server/store.mjs`: read and write nanos and contracts; `reviseContract` derives a contract's next revision from its current one.
 - `public/compose.mjs`, `public/evaluate.mjs`, `public/picos.mjs`: pure modules shared by the server, the static build and the browser.
 - `tools/build-static.mjs` + `.github/workflows/pages.yml`: the GitHub Pages site, deployed on every push to `main`.

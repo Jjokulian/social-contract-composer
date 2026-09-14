@@ -2,7 +2,7 @@
 // State lives in the URL (?contract=…&society=…&p.<parameter>=…), so every view can be linked.
 import { evaluate } from './evaluate.mjs';
 import { picoMatcher } from './picos.mjs';
-import { findSource } from './source.mjs';
+import { findSource, storeOf, STORES } from './source.mjs';
 import { coverageReason } from './explain.mjs';
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -30,10 +30,11 @@ const snapshots = new Map();
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-const state = { contract: null, society: '', parameters: {} };
+const state = { store: 'catalogue', contract: null, society: '', parameters: {} };
 
 function readUrl() {
   const q = new URLSearchParams(location.search);
+  state.store = storeOf(location.search);   // the catalogue, or the platform's own store
   state.contract = q.get('contract');
   state.society = q.get('society') ?? '';
   state.parameters = Object.fromEntries([...q].filter(([k]) => k.startsWith('p.')).map(([k, v]) => [k.slice(2), v]));
@@ -41,10 +42,12 @@ function readUrl() {
 
 function writeUrl() {
   const q = new URLSearchParams({ contract: state.contract });
+  if (state.store !== 'catalogue') q.set('store', state.store);
   if (state.society) q.set('society', state.society);
   for (const [id, value] of Object.entries(state.parameters)) q.set(`p.${id}`, value);
   history.replaceState(null, '', `?${q}`);
-  document.querySelectorAll('a[data-keep-contract]').forEach(a => { a.href = `${a.dataset.keepContract}?contract=${encodeURIComponent(state.contract)}`; });
+  const keep = new URLSearchParams({ contract: state.contract, ...(state.store !== 'catalogue' && { store: state.store }) });
+  document.querySelectorAll('a[data-keep-contract]').forEach(a => { a.href = `${a.dataset.keepContract}?${keep}`; });
 }
 
 let sequence = 0;
@@ -98,6 +101,15 @@ const BINDING = {
 const bindingChip = b => BINDING[b] ? `<span class="binding ${b}" title="${BINDING[b][1]}">${BINDING[b][0]}</span>` : '';
 
 const DIRECTION = { 'raises': 'raises', 'lowers': 'lowers', 'bears-on': 'bears on', 'stands-in-for': 'stands in for' };
+
+// The platform's own copy follows each word's latest revision, and its definitions refer to one another in cycles, so
+// older revisions in use there are expected, not findings. A contract keeps the meaning it was written with, so in the
+// catalogue they are reported.
+const followsLatest = () => state.store === 'system';
+const revisionFindings = r => ({
+  clashes: followsLatest() ? r.checks.definitionClashes.filter(d => d.kind !== 'versions') : r.checks.definitionClashes,
+  stale: followsLatest() ? [] : r.checks.staleReferences,
+});
 
 // A socioship term's state, shown with the coverage marks: [mark, words].
 const SOCIOSHIP = { defined: ['claimed', 'defined'], default: ['thin', 'default holds'], gap: ['gap', 'not defined'] };
@@ -241,15 +253,22 @@ function renderReport(r) {
   };
 
   const outside = Object.values(r.claims).filter(c => !c.endorsed);
-  const definitions = Object.values(r.nanos).filter(n => n.kind === 'definition');
+  // Each word once, at its latest revision in the composition; older revisions still in use are reported under Structure.
+  const latestWord = new Map();
+  for (const n of Object.values(r.nanos))
+    if (n.kind === 'definition' && (!latestWord.has(n.id) || latestWord.get(n.id).rev < n.rev)) latestWord.set(n.id, n);
+  const definitions = [...latestWord.values()];
   const { checks } = r;
+  const { clashes, stale } = revisionFindings(r);
 
   const bar = ['claimed', 'thin', 'gap'].map(level => count(level)
     ? `<span class="swatch-${level}" style="flex:${count(level)}" title="${count(level)} ${level}"></span>` : '').join('');
 
   return [
     `<header>
-      <p class="eyebrow">${r.contract.scale === 'social' ? 'milli: a composed social contract' : 'micro: a micro-social-contract'} ·${esc(r.contract.status)} · ${esc(r.contract.ref)}${r.society ? ` · evaluated in ${esc(r.society)}` : ''}</p>
+      <p class="eyebrow">${state.store === 'system'
+        ? `platform · ${r.contract.scale === 'social' ? 'milli: the application' : 'micro: a service'}`
+        : r.contract.scale === 'social' ? 'milli: a composed social contract' : 'micro: a micro-social-contract'} · ${esc(r.contract.status)} · ${esc(r.contract.ref)}${r.society ? ` · evaluated in ${esc(r.society)}` : ''}</p>
       <h1 class="title">${esc(r.contract.title)}</h1>
       <p class="thesis">${r.tree.map(n => terms(n.statement, nano(n.ref))).join(' · ')}</p>
       ${r.contract.status === 'proposed' ? `<p class="proposal-note">A proposal, raised in ${issueLink(r.contract.source) || 'an issue'} and not yet granted. It composes ${r.contract.includes.map(i => `<code>${esc(i.ref)}</code>`).join(', ')} with the proposal’s own nanos, so its effect on the intents can be tested here before anyone decides. Discuss it on the issue.</p>` : ''}
@@ -332,14 +351,16 @@ function renderReport(r) {
             ? `<strong>${named(c.resolution.prevails)}</strong> prevails by ${MAXIM[c.resolution.by]}; ${named(c.resolution.setAside)} is set aside`
             : '<span class="fails">no maxim decides it</span>'}</p>`).join('')
         : empty('No conflicting nanos in this composition.')}</div>
-      <div class="finding"><h3>Definition clashes</h3>${checks.definitionClashes.length
-        ? checks.definitionClashes.map(d => `<p style="margin:0">${d.kind === 'versions'
+      <div class="finding"><h3>Definition clashes</h3>${clashes.length
+        ? clashes.map(d => `<p style="margin:0">${d.kind === 'versions'
             ? `Two revisions of “${esc(d.term)}” are in use: <span class="ref">${d.definitions.map(esc).join(' and ')}</span>`
             : `“${esc(d.term)}” has two senses in play: ${d.definitions.map(named).join(' and ')}`}</p>`).join('')
         : empty('Each term has one definition.')}</div>
-      <div class="finding"><h3>Different revisions in use</h3>${checks.staleReferences.length
+      <div class="finding"><h3>Different revisions in use</h3>${followsLatest()
+        ? empty('The platform’s own copy follows each word’s latest revision. Its definitions refer to one another in cycles, so the revisions they were written with are not findings here.')
+        : stale.length
         ? `<p style="margin:0 0 6px">These nanos were written with a different revision of a pico than the one this contract defines. They keep the meaning they were written with until they are rewritten as new revisions.</p>`
-          + checks.staleReferences.map(s => `<p style="margin:0">${named(s.nano)}: “${esc(s.phrase)}” means <span class="ref">${esc(s.pico)}</span>; this contract defines <span class="ref">${esc(s.current)}</span></p>`).join('')
+          + stale.map(s => `<p style="margin:0">${named(s.nano)}: “${esc(s.phrase)}” means <span class="ref">${esc(s.pico)}</span>; this contract defines <span class="ref">${esc(s.current)}</span></p>`).join('')
         : empty('Every nano uses the revision of its picos that this contract defines.')}</div>`),
     section('definitions', 'Picos: defined words', 'Words with a strict definition in this contract. Wherever one appears in the text above, it is underlined; hover or focus it to read the definition. Where a composition brings in a different definition of the same word, it shows as a clash above.',
       `<dl class="defs">${definitions.map(d => `<div><dt>${esc(d.termLabel)} <span class="ref">${esc(d.ref)}</span></dt><dd>${terms(d.meaning, d)}</dd>
@@ -406,8 +427,8 @@ function renderPanel(r) {
     ['structure', 'Orphan clauses', c.orphans.length],
     ['structure', 'Conflicts', c.conflicts.length],
     ['structure', 'Conflicts no maxim decides', c.conflicts.filter(x => !x.resolution).length],
-    ['structure', 'Definition clashes', c.definitionClashes.length],
-    ['structure', 'Different revisions in use', c.staleReferences.length],
+    ['structure', 'Definition clashes', revisionFindings(r).clashes.length],
+    ['structure', 'Different revisions in use', revisionFindings(r).stale.length],
   ];
   $('#tally').innerHTML = rows.map(([id, label, n]) =>
     `<li><a href="#${id}"><span>${label}</span><span class="n${n ? '' : ' zero'}">${n}</span></a></li>`).join('');
@@ -506,7 +527,13 @@ function render(r) {
 
 async function boot() {
   readUrl();
-  source = await findSource();
+  source = await findSource(state.store);
+
+  // Switching store reloads the page on the other store's contracts: the two have different contracts and societies.
+  const storeSelect = $('#store');
+  storeSelect.innerHTML = Object.entries(STORES).map(([id, label]) => `<option value="${id}">${label}</option>`).join('');
+  storeSelect.value = state.store;
+  storeSelect.addEventListener('change', () => { location.search = storeSelect.value === 'catalogue' ? '' : `?store=${storeSelect.value}`; });
 
   const [contracts, societies] = await Promise.all([source.contracts(), source.societies()]).catch(err => { fail(err.message); return []; });
   if (!contracts) return;

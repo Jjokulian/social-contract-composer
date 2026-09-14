@@ -1,7 +1,7 @@
 // The graph view: the same composition as the Contracts view, drawn as nodes and edges that flow upward into the top
 // intents. Intents at the top, the clauses that serve them below, measures and consequences further down.
 import { evaluate } from './evaluate.mjs';
-import { findSource } from './source.mjs';
+import { findSource, storeOf, STORES } from './source.mjs';
 import { coverageReason } from './explain.mjs';
 
 const $ = selector => document.querySelector(selector);
@@ -21,12 +21,15 @@ function frame() {
   cy.fit(undefined, 30);
   if (cy.zoom() >= READABLE) return;
   const roots = cy.nodes('[kind = "intent"]').filter(n => n.outgoers('edge[kind = "refines"]').empty());
+  if (roots.empty()) return;   // nothing but words, as in a vocabulary: fitting is the best view
   cy.zoom(READABLE);
   cy.center(roots);
   cy.panBy({ x: 0, y: -(cy.height() / 2 - roots.renderedBoundingBox().h / 2 - 40) });
 }
 
 let cy, report, source;
+const store = storeOf(location.search);   // the catalogue, or the platform's own store
+const query = id => new URLSearchParams({ contract: id, ...(store !== 'catalogue' && { store }) });
 const treeNodes = new Map();
 const layers = () => ({
   claims: $('#layer-claims').checked, influences: $('#layer-influences').checked,
@@ -72,12 +75,21 @@ function elements(r, show) {
       edge(q, b.clause, 'breach', { setBy: b.setBy });
     }
   }
-  if (show.picos) {   // each nano's recorded references to picos
-    for (const [id] of [...nodes])
-      for (const ref of new Set((nano(id).picos ?? []).map(p => p.pico))) {
-        node(ref, 'pico', nano(ref).termLabel ?? ref);
+  if (show.picos) {
+    // The composition's own words, and every recorded reference to a pico, including the picos' references to one
+    // another. Revisions of one word are drawn as one node: the Contracts view reports revisions that differ.
+    const latest = new Map();
+    for (const n of Object.values(r.nanos)) if (n.kind === 'definition' && (!latest.has(n.id) || latest.get(n.id).rev < n.rev)) latest.set(n.id, n);
+    const word = ref => latest.get(String(ref).split('@')[0])?.ref ?? ref;
+    for (const n of latest.values()) node(n.ref, 'pico', n.termLabel ?? n.ref);
+    for (const queue = [...nodes.keys()]; queue.length;) {
+      const id = queue.shift();
+      for (const ref of new Set((nano(id).picos ?? []).map(p => word(p.pico)))) {
+        if (ref === id) continue;
+        if (!nodes.has(ref)) { node(ref, 'pico', nano(ref).termLabel ?? ref); queue.push(ref); }
         edge(ref, id, 'uses');
       }
+    }
   }
   return [...nodes.values(), ...edges];
 }
@@ -144,7 +156,7 @@ function clear() {
   $('#details').innerHTML = `
     <section><h2>How to read the graph</h2>
       <p class="detail-note">Everything flows upward into the top intents. An intent’s border shows its coverage: solid for claimed, dashed for thin, dotted for a gap. Below the intents sit the clauses that serve them; a thick line is a sufficient claim, a dashed one a contributing claim, a red one hinders. Measures and influences sit further down.</p>
-      <p class="detail-note">Click a node to see its neighbourhood and details. Scroll to zoom, drag to move. The same content is listed in the <a href="./?contract=${encodeURIComponent(report.contract.id)}">Contracts view</a>.</p>
+      <p class="detail-note">Click a node to see its neighbourhood and details. Scroll to zoom, drag to move. The same content is listed in the <a href="./?${query(report.contract.id)}">Contracts view</a>.</p>
     </section>`;
 }
 
@@ -192,14 +204,19 @@ async function load(id) {
   treeNodes.clear();
   const walk = n => { treeNodes.set(n.ref, n); n.children.forEach(walk); };
   report.tree.forEach(walk);
-  history.replaceState(null, '', `?contract=${encodeURIComponent(id)}`);
-  document.querySelectorAll('a[data-keep-contract]').forEach(a => { a.href = `${a.dataset.keepContract}?contract=${encodeURIComponent(id)}`; });
+  history.replaceState(null, '', `?${query(id)}`);
+  document.querySelectorAll('a[data-keep-contract]').forEach(a => { a.href = `${a.dataset.keepContract}?${query(id)}`; });
   draw();
 }
 
 async function boot() {
   document.documentElement.style.setProperty('--bar-h', `${$('.bar').offsetHeight}px`);
-  source = await findSource();
+  source = await findSource(store);
+  const storeSelect = $('#store');
+  storeSelect.innerHTML = Object.entries(STORES).map(([id, label]) => `<option value="${id}">${label}</option>`).join('');
+  storeSelect.value = store;
+  storeSelect.addEventListener('change', () => { location.search = storeSelect.value === 'catalogue' ? '' : `?store=${storeSelect.value}`; });
+  if (store === 'system') $('#layer-picos').checked = true;   // the platform's store is mostly words: show them
   const contracts = await source.contracts();
   const wanted = new URLSearchParams(location.search).get('contract');
   const id = contracts.some(c => c.id === wanted) ? wanted : (contracts.find(c => c.status !== 'proposed') ?? contracts[0]).id;

@@ -1,4 +1,6 @@
-// The composer server: a JSON API over the store, plus the client in public/.
+// The composer server: a JSON API over the stores, plus the client in public/.
+//
+// Every route reads the catalogue of contracts, or with ?store=system the platform's own store, in the same structure.
 //
 //   GET  /api/config                         what this deployment can do (a static build has no /api, and the client degrades)
 //   GET  /api/contracts                      latest revision of every contract
@@ -13,7 +15,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openStore, listContracts, catalogue, describe, resolve, addNano, addContract, addDemesne, listDemesnes, StoreError } from './store.mjs';
+import { openStore, listContracts, catalogue, describe, resolve, addNano, addContract, addDemesne, listDemesnes, StoreError,
+         SYSTEM_PATH } from './store.mjs';
 import { report, snapshot } from './checks.mjs';
 import { layering, stackAt } from '../public/space.mjs';
 
@@ -26,28 +29,35 @@ const TYPES = {
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
 };
 
-const db = openStore();
+// The catalogue of contracts, and the platform's own structure in the same schema.
+const stores = { catalogue: openStore(), system: openStore(SYSTEM_PATH) };
+const storeOf = query => {
+  const name = query.get('store') ?? 'catalogue';
+  if (!Object.hasOwn(stores, name)) throw new StoreError(`no store ${name}: use ${Object.keys(stores).join(' or ')}`, 404);
+  return stores[name];
+};
 
 const parameterOverrides = query =>
   Object.fromEntries([...query].filter(([key]) => key.startsWith('p.')).map(([key, value]) => [key.slice(2), value]));
 
+// Each route runs against the store the request names.
 const routes = [
-  { method: 'GET', path: /^\/api\/config$/, run: () => ({ server: true, writes: WRITES }) },
-  { method: 'GET', path: /^\/api\/contracts$/, run: () => listContracts(db) },
-  { method: 'GET', path: /^\/api\/catalogue$/, run: () => catalogue(db) },
+  { method: 'GET', path: /^\/api\/config$/, run: () => ({ server: true, writes: WRITES, stores: Object.keys(stores) }) },
+  { method: 'GET', path: /^\/api\/contracts$/, run: ({ db }) => listContracts(db) },
+  { method: 'GET', path: /^\/api\/catalogue$/, run: ({ db }) => catalogue(db) },
   { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/report$/,
-    run: ([ref], query) => report(db, ref, { society: query.get('society') || null, parameters: parameterOverrides(query) }) },
-  { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/snapshot$/, run: ([ref]) => snapshot(db, ref) },
-  { method: 'GET', path: /^\/api\/societies$/, run: () => db.prepare('SELECT id, label FROM society ORDER BY label').all() },
-  { method: 'GET', path: /^\/api\/nanos\/([^/]+)$/, run: ([ref]) => describe(db, resolve(db, ref)) },
-  { method: 'GET', path: /^\/api\/demesnes$/, run: () => listDemesnes(db) },
-  { method: 'GET', path: /^\/api\/spaces\/([^/]+)\/layering$/, run: ([space], query) => {
+    run: ({ db, params: [ref], query }) => report(db, ref, { society: query.get('society') || null, parameters: parameterOverrides(query) }) },
+  { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/snapshot$/, run: ({ db, params: [ref] }) => snapshot(db, ref) },
+  { method: 'GET', path: /^\/api\/societies$/, run: ({ db }) => db.prepare('SELECT id, label FROM society ORDER BY label').all() },
+  { method: 'GET', path: /^\/api\/nanos\/([^/]+)$/, run: ({ db, params: [ref] }) => describe(db, resolve(db, ref)) },
+  { method: 'GET', path: /^\/api\/demesnes$/, run: ({ db }) => listDemesnes(db) },
+  { method: 'GET', path: /^\/api\/spaces\/([^/]+)\/layering$/, run: ({ db, params: [space], query }) => {
     const all = layering(listDemesnes(db).demesnes, space);
     return query.get('at') ? stackAt(all, query.get('at').split(',').map(Number)) : all;
   } },
-  { method: 'POST', path: /^\/api\/nanos$/, writes: true, run: (_, __, body) => addNano(db, body) },
-  { method: 'POST', path: /^\/api\/demesnes$/, writes: true, run: (_, __, body) => addDemesne(db, body) },
-  { method: 'POST', path: /^\/api\/contracts$/, writes: true, run: (_, __, body) => addContract(db, body) },
+  { method: 'POST', path: /^\/api\/nanos$/, writes: true, run: ({ db, body }) => addNano(db, body) },
+  { method: 'POST', path: /^\/api\/contracts$/, writes: true, run: ({ db, body }) => addContract(db, body) },
+  { method: 'POST', path: /^\/api\/demesnes$/, writes: true, run: ({ db, body }) => addDemesne(db, body) },
 ];
 
 const send = (res, status, data) => {
@@ -84,7 +94,7 @@ createServer(async (req, res) => {
     if (route.writes && !WRITES) return send(res, 403, { error: 'Writes are off. Start the server with COMPOSER_ALLOW_WRITES=1 to allow them.' });
     const body = req.method === 'POST' ? JSON.parse((await readBody(req)) || '{}') : null;
     const params = route.path.exec(url.pathname).slice(1).map(decodeURIComponent);
-    send(res, req.method === 'POST' ? 201 : 200, route.run(params, url.searchParams, body));
+    send(res, req.method === 'POST' ? 201 : 200, route.run({ params, query: url.searchParams, body, db: storeOf(url.searchParams) }));
   } catch (err) {
     const status = err instanceof StoreError || err.status ? err.status
       : err instanceof SyntaxError || String(err.code).startsWith('SQLITE_CONSTRAINT') ? 400
