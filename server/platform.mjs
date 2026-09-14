@@ -49,8 +49,10 @@ const serviceOf = path => SERVICES.find(([, , files]) => files.some(f => (f inst
 
 // ─── Files ───────────────────────────────────────────────────────────────────
 
+// The platform is what git tracks: a new file joins when it is staged (git add), and notes left untracked in the folder
+// are never swept into the store, which is published.
 export function listFiles(root = ROOT) {
-  return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8' })
+  return execFileSync('git', ['ls-files', '--cached'], { cwd: root, encoding: 'utf8' })
     .split('\n').filter(path => path && !EXCLUDED.some(x => x.test(path)) && existsSync(join(root, path))).sort();
 }
 

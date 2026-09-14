@@ -72,9 +72,15 @@ export function compose(cat, spec) {
     for (const [ref, value] of Object.entries(c.parameters ?? {})) if (!values.has(ref)) values.set(ref, value);
   const parameters = [...values].map(([ref, value]) => ({ ...nanoOf(ref), value }));
 
-  // Claims anywhere in the catalogue whose ends and preconditions are all in the composition.
+  // Claims anywhere in the catalogue whose ends and preconditions are all in the composition. Of each claim only one
+  // revision counts: the one the composition endorses, or else the latest. Older revisions (a claim relinked to its
+  // picos, say) are superseded, never outside claims of their own.
   const everything = Object.values(cat.nanos).sort((a, b) => a.rid - b.rid);
-  const claims = everything.filter(n => n.kind === 'claim' && has(n.from) && has(n.to) && n.given.every(has))
+  const endorsedClaims = new Set([...members].filter(ref => nanoOf(ref).kind === 'claim').map(nanoId));
+  const latestClaim = new Map();
+  for (const n of everything) if (n.kind === 'claim' && (latestClaim.get(n.id)?.rev ?? 0) < n.rev) latestClaim.set(n.id, n);
+  const claims = everything.filter(n => n.kind === 'claim' && has(n.from) && has(n.to) && n.given.every(has)
+      && (has(n.ref) || (!endorsedClaims.has(n.id) && latestClaim.get(n.id) === n)))
     .map(n => ({ ...n, endorsed: has(n.ref) }));
   const disagreements = [];
   for (let i = 0; i < claims.length; i++)
