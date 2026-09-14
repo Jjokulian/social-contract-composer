@@ -33,7 +33,13 @@ const text = n => n.statement ?? n.text ?? n.meaning ?? n.label ?? n.ref;
 // ─── Drafts ──────────────────────────────────────────────────────────────────
 
 const blank = () => ({ id: 'draft', scale: 'social', title: 'My Social Contract', territory: '', status: 'draft',
-  intents: [], edges: [], members: [], parameters: {}, includes: [], breaches: [], enforcement: [], socioship: [], nanos: {} });
+  intents: [], edges: [], members: [], parameters: {}, includes: [], breaches: [], enforcement: [], socioship: [],
+  operations: [], resolution: [], nanos: {} });
+
+// The maxims a milli may resolve conflicts by, in their customary order: a later general law does not repeal an earlier
+// special one (lex posterior generalis non derogat priori speciali), so specialis comes before posterior.
+const MAXIM_ORDER = ['superior', 'specialis', 'posterior'];
+const MAXIM_LABEL = { superior: 'lex superior: the base outranks', specialis: 'lex specialis: the special prevails', posterior: 'lex posterior: the later prevails' };
 
 const BINDING_TIP = { work: 'Work to carry out', abide: 'A rule to abide by; breaches must be detected', liberty: 'A liberty; no one is bound to act' };
 const bindingChip = n => n.binding ? `<span class="binding ${n.binding}" title="${BINDING_TIP[n.binding]}">${n.binding}</span>` : '';
@@ -98,6 +104,14 @@ const ops = {
     draft.members = draft.members.filter(m => m !== ref);
     draft.breaches = draft.breaches.filter(b => b.clause !== ref);
     draft.socioship = draft.socioship.filter(s => s.nano !== ref);
+  },
+  toggleBase(ref) { draft.includes = draft.includes.map(i => i.ref === ref ? { ...i, base: !i.base } : i); },
+  derogate(ref) { if (!draft.operations.some(o => o.op === 'derogate' && o.nano === ref)) draft.operations.push({ op: 'derogate', nano: ref }); },
+  undoOperation(index) { draft.operations.splice(index, 1); },
+  setMaxim(maxim, on) {
+    const chosen = new Set(draft.resolution);
+    if (on) chosen.add(maxim); else chosen.delete(maxim);
+    draft.resolution = MAXIM_ORDER.filter(m => chosen.has(m));
   },
   define(term, ref) { if (!draft.socioship.some(s => s.term === term && s.nano === ref)) draft.socioship.push({ term, nano: ref }); },
   undefine(term, ref) { draft.socioship = draft.socioship.filter(s => !(s.term === term && s.nano === ref)); },
@@ -178,6 +192,8 @@ function renderCanvas(out) {
         <div class="block-head">
           <strong>${esc(c?.title ?? i.ref)}</strong>
           <span class="chip">${i.mode === 'nest' ? `nested under “${esc(short(text(nano(i.under)), 40))}”` : 'added'}</span>
+          <button type="button" class="chip toggle${i.base ? ' on' : ''}" data-action="base" data-ref="${esc(i.ref)}" aria-pressed="${Boolean(i.base)}"
+            title="The base ranks first when lex superior resolves a conflict">base</button>
           <button type="button" class="x" data-action="remove-include" data-ref="${esc(i.ref)}" aria-label="Remove ${esc(c?.title ?? i.ref)}">×</button>
         </div>
         <span class="ref">${esc(i.ref)}${c?.status === 'proposed' ? ' · a proposal' : ''}</span>
@@ -243,6 +259,8 @@ function renderCanvas(out) {
               placeholder="${esc(theirEnforcer ? `Detected by ${theirEnforcer.by.map(roleLabel).join(', ')} (set by ${theirEnforcer.setBy})` : 'Detected and enforced by… (no one yet)')}"
               aria-label="Who detects breaches of this clause and applies its consequences">` : ''}
             <span class="breach-chips">
+              ${draft.members.includes(cl) ? '' : `<button type="button" class="chip toggle" data-action="derogate" data-ref="${esc(cl)}"
+                title="Derogate: set this included clause aside in your milli; it stays listed under Operators">derogate</button>`}
               ${own.map(b => `<span class="chip consequence">${esc(text(nano(b.consequence)))}<button type="button" class="x" data-action="detach" data-clause="${esc(cl)}" data-ref="${esc(b.consequence)}" aria-label="Detach">×</button></span>`).join('')}
               ${theirs.map(c => `<span class="chip consequence inherited" title="set by ${esc(inherited.get(cl).setBy)}">${esc(text(nano(c)))}</span>`).join('')}
               <select data-action="attach" data-clause="${esc(cl)}" aria-label="Attach a consequence">
@@ -251,6 +269,17 @@ function renderCanvas(out) {
             </span>
           </li>`;
       }).join('')}</ul>` : '<p class="empty">No clauses in the composition yet.</p>'}
+    </section>
+
+    <section class="canvas-section"><h2>Operators and resolution</h2>
+      <p class="lede">Mark an included contract as the base, derogate an included clause from its row above, and choose the maxims that resolve the conflicts no operator settles. Nothing is deleted: what you set aside stays listed here.</p>
+      ${draft.operations.length ? `<ul class="rows">${draft.operations.map((o, i) => `
+        <li class="row"><span class="modality">${esc(o.op)}</span><span class="row-text"><s>${esc(short(text(nano(o.nano)), 120))}</s></span>
+        <button type="button" class="x" data-action="undo-operation" data-index="${i}" aria-label="Undo this ${esc(o.op)}">×</button></li>`).join('')}</ul>`
+        : '<p class="empty">No operators yet.</p>'}
+      <fieldset class="layers"><legend>Resolve conflicts by</legend>
+        ${MAXIM_ORDER.map(m => `<label><input type="checkbox" data-action="maxim" data-maxim="${m}"${draft.resolution.includes(m) ? ' checked' : ''}> ${MAXIM_LABEL[m]}</label>`).join('')}
+      </fieldset>
     </section>
 
     <section class="canvas-section"><h2>Socioship</h2>
@@ -294,6 +323,7 @@ function renderReport() {
     ['Conflicts', c.conflicts.length], ['Definition clashes', c.definitionClashes.length], ['Intents with a gap', c.gaps.length],
     ['Tensions', c.tensions.length], ['Disagreements', c.disagreements.length], ['Clauses with consequences', r.breaches.length],
     ['Consequences no one detects', c.unenforced.length], ['Socioship terms not defined', c.socioshipGaps.length],
+    ['Operators', c.operations.length], ['Conflicts no maxim decides', c.conflicts.filter(x => !x.resolution).length],
   ];
   $('#report').innerHTML = `
     <section>
@@ -325,7 +355,9 @@ function submit() {
   const bullets = items => items.map(x => `- ${x}`).join('\n') || '- none';
   const summary = [
     `**Territory:** ${draft.territory || 'not stated'}`, '',
-    '**Contracts included**', bullets(draft.includes.map(i => `\`${i.ref}\` ${i.mode === 'nest' ? `nested under \`${i.under}\`` : 'added'}`)), '',
+    '**Contracts included**', bullets(draft.includes.map(i => `\`${i.ref}\` ${i.mode === 'nest' ? `nested under \`${i.under}\`` : 'added'}${i.base ? ', as the base' : ''}`)), '',
+    '**Operators**', bullets(draft.operations.map(o => `${o.op} \`${o.nano}\`: ${short(text(nano(o.nano)), 100)}`)), '',
+    `**Resolves conflicts by:** ${draft.resolution.map(m => MAXIM_LABEL[m]).join('; then ') || 'no maxims'}`, '',
     '**Own intents**', bullets(draft.intents.map(i => `${text(nano(i.ref))} (\`${i.ref}\`)`)), '',
     '**Own clauses and definitions**', bullets(draft.members.filter(m => !draft.nanos[m]).map(m => `${short(text(nano(m)), 120)} (\`${m}\`)`)), '',
     '**Consequences of breach**', bullets(draft.breaches.map(b => `\`${b.clause}\` → ${text(nano(b.consequence))}`)), '',
@@ -389,6 +421,9 @@ document.addEventListener('click', e => {
   else if (action === 'remove-claim') ops.removeClaim(ref);
   else if (action === 'detach') ops.detach(clause, ref);
   else if (action === 'undefine') ops.undefine(term, ref);
+  else if (action === 'base') ops.toggleBase(ref);
+  else if (action === 'derogate') ops.derogate(ref);
+  else if (action === 'undo-operation') ops.undoOperation(Number(b.dataset.index));
   else return;
   change();
 });
@@ -397,6 +432,7 @@ document.addEventListener('change', e => {
   const el = e.target;
   if (el.dataset?.action === 'attach' && el.value) { ops.attach(el.dataset.clause, el.value); change(); }
   else if (el.dataset?.action === 'define' && el.value) { ops.define(el.dataset.term, el.value); change(); }
+  else if (el.dataset?.action === 'maxim') { ops.setMaxim(el.dataset.maxim, el.checked); change(); }
   else if (el.dataset?.action === 'relation') { draft.nanos[el.dataset.ref].relation = el.value; change(); }
   else if (el.dataset?.action === 'rationale') { draft.nanos[el.dataset.ref].rationale = el.value; save(); }
   else if (el.dataset?.action === 'enforcer') {

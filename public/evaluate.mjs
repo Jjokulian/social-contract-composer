@@ -114,7 +114,29 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
     return { ...c, when, assuming, status, active: status === 'applies' || status === 'unverified' };
   });
   const claimByRef = new Map(claims.map(c => [c.ref, c]));
-  const standing = claims.filter(c => c.active && c.endorsed);
+  // Conflicts no operator settled are resolved by the composition's maxims, in its order. The side that loses is set
+  // aside: its claims stop counting. With no maxim deciding, a conflict stays open and both sides stand.
+  const prov = snap.provenance ?? {};
+  const special = new Set((snap.specialis ?? []).map(s => `${s.special}>${s.general}`));
+  const MAXIMS = {
+    superior: (a, b) => Boolean(prov[a]?.base) === Boolean(prov[b]?.base) ? null : prov[a]?.base ? a : b,   // the base outranks
+    specialis: (a, b) => special.has(`${a}>${b}`) ? a : special.has(`${b}>${a}`) ? b : null,              // the special prevails
+    posterior: (a, b) => {                                                                                 // the later prevails
+      const [x, y] = [prov[a]?.order ?? 0, prov[b]?.order ?? 0];
+      return x === y ? null : x > y ? a : b;
+    },
+  };
+  const settle = (a, b) => {
+    for (const maxim of snap.resolution ?? []) {
+      const prevails = MAXIMS[maxim](a, b);
+      if (prevails) return { prevails, setAside: prevails === a ? b : a, by: maxim };
+    }
+    return null;
+  };
+  const conflicts = claims.filter(c => c.active && c.relation === 'conflicts')
+    .map(c => ({ claim: c.ref, between: [c.from, c.to], endorsed: c.endorsed, resolution: settle(c.from, c.to) }));
+  const setAside = new Set(conflicts.map(c => c.resolution?.setAside).filter(Boolean));
+  const standing = claims.filter(c => c.active && c.endorsed && !setAside.has(c.from));
 
   const pairs = snap.disagreements.map(([refA, refB]) => [claimByRef.get(refA), claimByRef.get(refB)]);
   const isRefinement = ([a, b]) => refines(a, b) || refines(b, a);
@@ -169,15 +191,15 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
   const definesSocioship = new Set((snap.socioship ?? []).flatMap(t => t.nanos));
 
   const checks = {
-    conflicts: claims.filter(c => c.active && c.relation === 'conflicts')
-      .map(c => ({ claim: c.ref, between: [c.from, c.to], endorsed: c.endorsed })),
-    definitionClashes: snap.definitionClashes,
+    conflicts,
+    setAside: [...setAside],
+    definitionClashes: snap.definitionClashes.map(d => ({ ...d, resolution: settle(...d.definitions) })),
     staleReferences: snap.staleReferences,   // nanos written with another revision of a pico than the composition defines
     gaps: flat.filter(n => n.coverage === 'gap').map(n => n.ref),
     thin: flat.filter(n => n.coverage === 'thin').map(n => n.ref),
     // A clause serves an intent directly (it is a claim's `from`) or as a precondition (it is in a claim's `given`), or it
     // serves the milli's structure by defining a term of its socioship.
-    orphans: snap.clauses.filter(cl => !definesSocioship.has(cl)
+    orphans: snap.clauses.filter(cl => !definesSocioship.has(cl) && !setAside.has(cl)
       && !standing.some(c => c.relation !== 'conflicts' && (c.from === cl || c.given.includes(cl)))),
     tensions: snap.clauses.map(cl => ({ clause: cl, supports: targets(cl, 'supports'), hinders: targets(cl, 'hinders') }))
       .filter(t => t.hinders.length),
@@ -186,10 +208,11 @@ export function evaluate(snap, { parameters: overrides = {}, society = null } = 
     // A consequence is only real if someone detects the breach: clauses with consequences but no one assigned to that work.
     unenforced: snap.breaches.filter(b => !snap.enforcement.some(e => e.clause === b.clause)).map(b => b.clause),
     socioshipGaps: (socioship ?? []).filter(t => t.status === 'gap').map(t => t.id),
+    operations: snap.operations ?? [],
   };
 
   return {
-    contract: snap.contract, society, parameters, tree, checks, socioship,
+    contract: snap.contract, society, parameters, tree, checks, socioship, resolution: snap.resolution ?? [],
     influences: snap.influences,
     breaches: snap.breaches,
     enforcement: snap.enforcement,

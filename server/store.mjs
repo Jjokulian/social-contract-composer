@@ -23,6 +23,8 @@ export function openStore(path = DEFAULT_PATH, { readonly = false } = {}) {
 function migrate(db) {
   const columns = db.prepare('PRAGMA table_info(clause_body)').all().map(c => c.name);
   if (!columns.includes('binding')) db.exec("ALTER TABLE clause_body ADD COLUMN binding TEXT CHECK (binding IN ('work', 'abide', 'liberty'))");
+  if (!db.prepare('PRAGMA table_info(contract_include)').all().some(c => c.name === 'base'))
+    db.exec('ALTER TABLE contract_include ADD COLUMN base INTEGER NOT NULL DEFAULT 0 CHECK (base IN (0, 1))');
 }
 
 // What a clause binds its role to, when the clause doesn't state it: follows the modality.
@@ -69,6 +71,21 @@ export function resolveContract(db, ref) {
 export function refOf(db, rid) {
   const r = db.prepare('SELECT nano_id, rev FROM revision WHERE rid = ?').get(rid);
   return `${r.nano_id}@${r.rev}`;
+}
+
+const contractRefOf = (db, crid) => db.prepare("SELECT contract_id || '@' || rev FROM contract_rev WHERE crid = ?").pluck().get(crid);
+
+// A contract revision's operators, in order, with references rendered as `id@rev` (fields that don't apply are left out).
+function operationsOf(db, crid) {
+  return db.prepare('SELECT op, contract_crid, nano_rid, replacement_rid, cites_rid FROM contract_operation WHERE crid = ? ORDER BY position')
+    .all(crid)
+    .map(o => Object.fromEntries(Object.entries({
+      op: o.op,
+      contract: o.contract_crid === null ? null : contractRefOf(db, o.contract_crid),
+      nano: o.nano_rid === null ? null : refOf(db, o.nano_rid),
+      replacement: o.replacement_rid === null ? null : refOf(db, o.replacement_rid),
+      cites: o.cites_rid === null ? null : refOf(db, o.cites_rid),
+    }).filter(([, v]) => v !== null)));
 }
 
 // ─── Writing nanos ───────────────────────────────────────────────────────────
@@ -150,7 +167,7 @@ export function addNano(db, { id, kind, filedBy, source, picos = [], ...body }) 
 //   includes:   [{ contract: ref, mode: 'nest'|'add', under?: intent ref }]
 export function addContract(db, { id, scale, title, status = 'draft', filedBy, source,
                                   intents = [], members = [], parameters = {}, includes = [], breaches = [], enforcement = [],
-                                  socioship = [] }) {
+                                  socioship = [], operations = [], resolution = [], specialis = [] }) {
   return db.transaction(() => {
     const existing = db.prepare('SELECT scale FROM contract WHERE id = ?').pluck().get(id);
     if (existing && existing !== scale) throw new StoreError(`${id} is already a ${existing} contract`);
@@ -179,8 +196,8 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
     for (const [ref, value] of Object.entries(parameters))
       db.prepare('INSERT INTO contract_parameter (crid, parameter_rid, value) VALUES (?, ?, ?)').run(crid, resolve(db, ref, 'parameter'), value);
     for (const inc of includes)
-      db.prepare('INSERT INTO contract_include (crid, included_crid, mode, under_intent_rid) VALUES (?, ?, ?, ?)')
-        .run(crid, resolveContract(db, inc.contract), inc.mode, inc.under ? ownIntent(inc.under) : null);
+      db.prepare('INSERT INTO contract_include (crid, included_crid, mode, under_intent_rid, base) VALUES (?, ?, ?, ?, ?)')
+        .run(crid, resolveContract(db, inc.contract), inc.mode, inc.under ? ownIntent(inc.under) : null, inc.base ? 1 : 0);
     for (const b of breaches)   // consequences of breach, set by this composition
       db.prepare('INSERT INTO contract_breach (crid, clause_rid, consequence_rid) VALUES (?, ?, ?)')
         .run(crid, resolve(db, b.clause, 'clause'), resolve(db, b.consequence, 'consequence'));
@@ -188,6 +205,15 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
       db.prepare('INSERT INTO contract_enforcement (crid, clause_rid, role_id) VALUES (?, ?, ?)').run(crid, resolve(db, e.clause, 'clause'), e.by);
     for (const s of socioship)   // for a milli: which of its clauses or definitions define each term of its socioship
       db.prepare('INSERT INTO contract_socioship (crid, term_id, nano_rid) VALUES (?, ?, ?)').run(crid, s.term, resolve(db, s.nano));
+    operations.forEach((o, position) =>   // abrogate / derogate / subrogate / obrogate what it includes
+      db.prepare(`INSERT INTO contract_operation (crid, position, op, contract_crid, nano_rid, replacement_rid, cites_rid)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(crid, position, o.op, o.contract ? resolveContract(db, o.contract) : null, o.nano ? resolve(db, o.nano) : null,
+             o.replacement ? resolve(db, o.replacement) : null, o.cites ? resolve(db, o.cites) : null));
+    resolution.forEach((maxim, position) =>   // the maxims that resolve conflicts, in order
+      db.prepare('INSERT INTO contract_resolution (crid, position, maxim) VALUES (?, ?, ?)').run(crid, position, maxim));
+    for (const s of specialis)
+      db.prepare('INSERT INTO contract_specialis (crid, special_rid, general_rid) VALUES (?, ?, ?)').run(crid, resolve(db, s.special), resolve(db, s.general));
     return { ref: `${id}@${rev}`, crid };
   })();
 }
@@ -198,7 +224,8 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
 //   addIntents: [{ ref, combine?, parent? }]
 //   dropEdges:  [{ child, parent }]                                     — refinements to remove, by current references
 export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], dropEdges = [], addBreaches = [], addEnforcement = [],
-                                         addSocioship = [], filedBy, source, title, status } = {}) {
+                                         addSocioship = [], addOperations = [], resolution: newResolution, addSpecialis = [],
+                                         filedBy, source, title, status } = {}) {
   const crid = resolveContract(db, id);
   const current = db.prepare(`SELECT c.contract_id AS id, c.title, c.status, k.scale FROM contract_rev c
                                JOIN contract k ON k.id = c.contract_id WHERE c.crid = ?`).get(crid);
@@ -215,11 +242,15 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
     .map(rid => refOf(db, rid)).filter(ref => !drop.includes(ref)).map(swap);
   const parameters = Object.fromEntries(db.prepare('SELECT parameter_rid, value FROM contract_parameter WHERE crid = ?').all(crid)
     .map(p => [swap(refOf(db, p.parameter_rid)), p.value]));
-  const includes = db.prepare('SELECT included_crid, mode, under_intent_rid FROM contract_include WHERE crid = ?').all(crid)
+  const includes = db.prepare('SELECT included_crid, mode, under_intent_rid, base FROM contract_include WHERE crid = ?').all(crid)
     .map(i => ({
-      contract: swap(db.prepare("SELECT contract_id || '@' || rev FROM contract_rev WHERE crid = ?").pluck().get(i.included_crid)),
+      contract: swap(contractRefOf(db, i.included_crid)), base: i.base === 1,
       mode: i.mode, under: i.under_intent_rid === null ? undefined : swap(refOf(db, i.under_intent_rid)),
     }));
+  const operations = operationsOf(db, crid).map(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, k === 'op' ? v : swap(v)])));
+  const resolution = newResolution ?? db.prepare('SELECT maxim FROM contract_resolution WHERE crid = ? ORDER BY position').pluck().all(crid);
+  const specialis = db.prepare('SELECT special_rid, general_rid FROM contract_specialis WHERE crid = ?').all(crid)
+    .map(s => ({ special: swap(refOf(db, s.special_rid)), general: swap(refOf(db, s.general_rid)) }));
   const breaches = db.prepare('SELECT clause_rid, consequence_rid FROM contract_breach WHERE crid = ?').all(crid)
     .map(b => ({ clause: swap(refOf(db, b.clause_rid)), consequence: swap(refOf(db, b.consequence_rid)) }));
   return addContract(db, {
@@ -236,6 +267,7 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
         .map(s => ({ term: s.term_id, nano: swap(refOf(db, s.nano_rid)) })),
       ...addSocioship,
     ],
+    operations: [...operations, ...addOperations], resolution, specialis: [...specialis, ...addSpecialis],
   });
 }
 
@@ -353,15 +385,19 @@ export function catalogue(db) {
     c.members = db.prepare('SELECT rid FROM contract_member WHERE crid = ? ORDER BY position').pluck().all(c.crid).map(rid => refOf(db, rid));
     c.parameters = Object.fromEntries(db.prepare('SELECT parameter_rid, value FROM contract_parameter WHERE crid = ?').all(c.crid)
       .map(p => [refOf(db, p.parameter_rid), p.value]));
-    c.includes = db.prepare(`SELECT r.contract_id || '@' || r.rev AS ref, i.mode, i.under_intent_rid FROM contract_include i
+    c.includes = db.prepare(`SELECT r.contract_id || '@' || r.rev AS ref, i.mode, i.under_intent_rid, i.base FROM contract_include i
                              JOIN contract_rev r ON r.crid = i.included_crid WHERE i.crid = ? ORDER BY r.crid`).all(c.crid)
-      .map(i => ({ ref: i.ref, mode: i.mode, under: i.under_intent_rid === null ? null : refOf(db, i.under_intent_rid) }));
+      .map(i => ({ ref: i.ref, mode: i.mode, base: i.base === 1, under: i.under_intent_rid === null ? null : refOf(db, i.under_intent_rid) }));
     c.breaches = db.prepare('SELECT clause_rid, consequence_rid FROM contract_breach WHERE crid = ? ORDER BY clause_rid, consequence_rid').all(c.crid)
       .map(b => ({ clause: refOf(db, b.clause_rid), consequence: refOf(db, b.consequence_rid) }));
     c.enforcement = db.prepare('SELECT clause_rid, role_id FROM contract_enforcement WHERE crid = ? ORDER BY clause_rid, role_id').all(c.crid)
       .map(e => ({ clause: refOf(db, e.clause_rid), by: e.role_id }));
     c.socioship = db.prepare('SELECT term_id, nano_rid FROM contract_socioship WHERE crid = ? ORDER BY term_id, nano_rid').all(c.crid)
       .map(s => ({ term: s.term_id, nano: refOf(db, s.nano_rid) }));
+    c.operations = operationsOf(db, c.crid);
+    c.resolution = db.prepare('SELECT maxim FROM contract_resolution WHERE crid = ? ORDER BY position').pluck().all(c.crid);
+    c.specialis = db.prepare('SELECT special_rid, general_rid FROM contract_specialis WHERE crid = ? ORDER BY special_rid, general_rid').all(c.crid)
+      .map(s => ({ special: refOf(db, s.special_rid), general: refOf(db, s.general_rid) }));
     contracts[c.ref] = c;
   }
   const roles = db.prepare('SELECT id, label FROM role ORDER BY label').all();

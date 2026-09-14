@@ -102,6 +102,16 @@ const DIRECTION = { 'raises': 'raises', 'lowers': 'lowers', 'bears-on': 'bears o
 // A socioship term's state, shown with the coverage marks: [mark, words].
 const SOCIOSHIP = { defined: ['claimed', 'defined'], default: ['thin', 'default holds'], gap: ['gap', 'not defined'] };
 
+// Each operator in set terms: M is what the composition holds, A an included contract's provisions, n one provision.
+const SET_FORM = { abrogate: 'M ∖ A', derogate: 'M ∖ {n}', subrogate: 'M ∪ {n}', obrogate: '(M ∖ {n}) ∪ {n′}' };
+
+// The maxims that resolve conflicts, as the composition states them.
+const MAXIM = {
+  superior: '<em>lex superior</em>, the base outranks',
+  specialis: '<em>lex specialis</em>, the special prevails',
+  posterior: '<em>lex posterior</em>, the later prevails',
+};
+
 function renderReport(r) {
   const nano = ref => r.nanos[ref] ?? r.claims[ref] ?? { ref };
   const named = ref => `<span title="${esc(nano(ref).text ?? nano(ref).statement ?? ref)}">${esc(humanize(ref))}</span>`;
@@ -220,6 +230,16 @@ function renderReport(r) {
       </div>`;
   };
 
+  // An operator and what it acts on, struck through: nothing it acts on is deleted.
+  const provision = ref => esc(short(nano(ref).text ?? nano(ref).meaning ?? nano(ref).statement ?? humanize(ref), 140));
+  const operationHtml = o => {
+    const body = o.op === 'abrogate' ? `abrogates <s><code>${esc(o.contract)}</code></s> as a whole`
+      : o.op === 'derogate' ? `derogates <s>${provision(o.nano)}</s>`
+      : o.op === 'obrogate' ? `obrogates <s>${provision(o.nano)}</s>, replacing it with ${provision(o.replacement)}`
+      : `subrogates ${provision(o.nano)} into <code>${esc(o.contract)}</code>`;
+    return `<p style="margin:0"><span class="kind-chip">${esc(o.op)}</span> <span class="ref">${SET_FORM[o.op]}</span> <code>${esc(o.by)}</code> ${body}${o.cites ? `, by the words of ${named(o.cites)}` : ''}</p>`;
+  };
+
   const outside = Object.values(r.claims).filter(c => !c.endorsed);
   const definitions = Object.values(r.nanos).filter(n => n.kind === 'definition');
   const { checks } = r;
@@ -295,12 +315,22 @@ function renderReport(r) {
               || '<span class="fails">no one assigned to detect breaches</span>'}</dd>
           </dl>
         </div>`).join('') || empty('This composition attaches no consequences of breach yet. The composing parties decide which breach costs what.')),
+    section('composition', 'How it composes', 'What it includes, what its operators do to them, and how it resolves the conflicts no operator settles. Nothing an operator acts on is deleted: it stays here, struck through.', `
+      <div class="finding"><h3>Includes</h3>${r.contract.includes.length
+        ? r.contract.includes.map(i => `<p style="margin:0">${i.base ? '<strong>base</strong> · ' : ''}${i.mode === 'nest' ? 'nests' : 'adds'} <code>${esc(i.ref)}</code></p>`).join('')
+        : empty('It includes no other contract.')}</div>
+      <div class="finding"><h3>Operators</h3>${checks.operations.length ? checks.operations.map(operationHtml).join('') : empty('No operator acts on what it includes.')}</div>
+      <div class="finding"><h3>Resolving conflicts</h3>${r.resolution.length
+        ? `<p style="margin:0">By ${r.resolution.map(m => MAXIM[m]).join('; then ')}. What loses a conflict is set aside, and its claims stop counting.</p>`
+        : empty('It states no maxims, so conflicts stay open until the parties settle them.')}</div>`),
     section('structure', 'Structure', null, `
       <div class="finding"><h3>Orphan clauses</h3>${checks.orphans.length
         ? `<p style="margin:0">${checks.orphans.map(named).join(', ')}: no standing claim connects these to an intent at the current values.</p>`
         : empty('Every clause serves an intent, directly or as a precondition.')}</div>
       <div class="finding"><h3>Conflicts</h3>${checks.conflicts.length
-        ? checks.conflicts.map(c => `<p style="margin:0">${named(c.between[0])} conflicts with ${named(c.between[1])} <span class="ref">${esc(c.claim)}</span></p>`).join('')
+        ? checks.conflicts.map(c => `<p style="margin:0">${named(c.between[0])} conflicts with ${named(c.between[1])} <span class="ref">${esc(c.claim)}</span> · ${c.resolution
+            ? `<strong>${named(c.resolution.prevails)}</strong> prevails by ${MAXIM[c.resolution.by]}; ${named(c.resolution.setAside)} is set aside`
+            : '<span class="fails">no maxim decides it</span>'}</p>`).join('')
         : empty('No conflicting nanos in this composition.')}</div>
       <div class="finding"><h3>Definition clashes</h3>${checks.definitionClashes.length
         ? checks.definitionClashes.map(d => `<p style="margin:0">${d.kind === 'versions'
@@ -372,8 +402,10 @@ function renderPanel(r) {
     ['breaches', 'Clauses with consequences', r.breaches.length],
     ['breaches', 'Consequences no one detects', c.unenforced.length],
     ...(r.socioship ? [['socioship', 'Socioship terms not defined', c.socioshipGaps.length]] : []),
+    ['composition', 'Operators', c.operations.length],
     ['structure', 'Orphan clauses', c.orphans.length],
     ['structure', 'Conflicts', c.conflicts.length],
+    ['structure', 'Conflicts no maxim decides', c.conflicts.filter(x => !x.resolution).length],
     ['structure', 'Definition clashes', c.definitionClashes.length],
     ['structure', 'Different revisions in use', c.staleReferences.length],
   ];

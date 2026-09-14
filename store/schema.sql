@@ -269,6 +269,7 @@ CREATE TABLE IF NOT EXISTS contract_include (    -- composition: nest under one 
   crid             INTEGER NOT NULL REFERENCES contract_rev(crid),
   included_crid    INTEGER NOT NULL REFERENCES contract_rev(crid),
   mode             TEXT    NOT NULL CHECK (mode IN ('nest', 'add')),
+  base             INTEGER NOT NULL DEFAULT 0 CHECK (base IN (0, 1)),   -- the composition's base, e.g. a constitution: it ranks first under lex superior
   under_intent_rid INTEGER,
   PRIMARY KEY (crid, included_crid),
   FOREIGN KEY (crid, under_intent_rid) REFERENCES contract_intent(crid, intent_rid),
@@ -419,6 +420,52 @@ CREATE TRIGGER IF NOT EXISTS contract_rev_immutable_d     BEFORE DELETE ON contr
 CREATE TRIGGER IF NOT EXISTS contract_intent_immutable    BEFORE UPDATE ON contract_intent    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_member_immutable    BEFORE UPDATE ON contract_member    BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS contract_parameter_immutable BEFORE UPDATE ON contract_parameter BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
+
+-- ─── Composition operators and resolution ────────────────────────────────────
+-- A composition acts on what it includes with the operators Roman law named (in the Rules attributed to Ulpian): it
+-- abrogates a whole included contract, derogates one of its nanos, subrogates a nano into it, or obrogates one of its
+-- nanos with another. Rogation and nesting are contract_include. Nothing is deleted: what an operator acts on stays
+-- visible. Conflicts no operator settles are resolved by the maxims the composition states, in its order.
+
+CREATE TABLE IF NOT EXISTS contract_operation (
+  crid            INTEGER NOT NULL REFERENCES contract_rev(crid),
+  position        INTEGER NOT NULL,
+  op              TEXT    NOT NULL CHECK (op IN ('abrogate', 'derogate', 'subrogate', 'obrogate')),
+  contract_crid   INTEGER REFERENCES contract_rev(crid),   -- abrogate: the contract repealed; subrogate: the contract added into
+  nano_rid        INTEGER REFERENCES revision(rid),        -- derogate, obrogate: the nano acted on; subrogate: the nano added
+  replacement_rid INTEGER REFERENCES revision(rid),        -- obrogate: the nano that replaces it
+  cites_rid       INTEGER REFERENCES revision(rid),        -- optional: the nano whose words make the operation ("is hereby repealed")
+  PRIMARY KEY (crid, position),
+  CHECK ((op = 'abrogate'  AND contract_crid IS NOT NULL AND nano_rid IS NULL     AND replacement_rid IS NULL)
+      OR (op = 'derogate'  AND contract_crid IS NULL     AND nano_rid IS NOT NULL AND replacement_rid IS NULL)
+      OR (op = 'subrogate' AND contract_crid IS NOT NULL AND nano_rid IS NOT NULL AND replacement_rid IS NULL)
+      OR (op = 'obrogate'  AND contract_crid IS NULL     AND nano_rid IS NOT NULL AND replacement_rid IS NOT NULL))
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS contract_resolution (   -- the maxims that resolve conflicts, in the composition's order
+  crid     INTEGER NOT NULL REFERENCES contract_rev(crid),
+  position INTEGER NOT NULL,
+  maxim    TEXT    NOT NULL CHECK (maxim IN ('superior', 'specialis', 'posterior')),
+  PRIMARY KEY (crid, position),
+  UNIQUE (crid, maxim)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS contract_specialis (    -- for lex specialis: the composition declares one nano special to another
+  crid        INTEGER NOT NULL REFERENCES contract_rev(crid),
+  special_rid INTEGER NOT NULL REFERENCES revision(rid),
+  general_rid INTEGER NOT NULL REFERENCES revision(rid),
+  PRIMARY KEY (crid, special_rid, general_rid),
+  CHECK (special_rid <> general_rid)
+) STRICT;
+
+CREATE TRIGGER IF NOT EXISTS contract_operation_kind BEFORE INSERT ON contract_operation
+WHEN (SELECT kind FROM revision_kind WHERE rid = NEW.nano_rid) = 'intent'
+  OR (SELECT kind FROM revision_kind WHERE rid = NEW.replacement_rid) = 'intent'
+BEGIN SELECT RAISE(ABORT, 'operators act on provisions; an intent is changed by a new revision of the contract'); END;
+
+CREATE TRIGGER IF NOT EXISTS contract_operation_immutable  BEFORE UPDATE ON contract_operation  BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS contract_resolution_immutable BEFORE UPDATE ON contract_resolution BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS contract_specialis_immutable  BEFORE UPDATE ON contract_specialis  BEGIN SELECT RAISE(ABORT, 'contract revisions are immutable: add a new revision'); END;
 
 -- ─── Socioship: the relation of having signed a milli ────────────────────────
 -- Socioship is structure, not content. Every milli defines the terms on which its socioship is held: these are the

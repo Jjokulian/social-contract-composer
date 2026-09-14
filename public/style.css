@@ -286,6 +286,18 @@ details.claims > summary:hover { text-decoration: underline; }
 .chip.consequence { border-color: var(--gap); color: var(--ink); }
 .chip.inherited { border-style: dashed; color: var(--ink-2); }
 .chip.gap { border-color: var(--gap); color: var(--ink); }
+button.chip { background: var(--surface); cursor: pointer; }
+button.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip.toggle.on { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
+
+/* ── Concordance: the composer's concepts beside their precedents ────── */
+.concordance { width: 100%; border-collapse: collapse; font-size: 14px; }
+.concordance th {
+  text-align: left; font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3);
+  padding: 6px 14px 6px 0; border-bottom: 1px solid var(--rule-strong);
+}
+.concordance td { padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--ink-2); line-height: 1.5; }
+.concordance td:first-child { font: 600 15px/1.4 var(--serif); color: var(--ink); white-space: nowrap; }
 .breach-row { flex-wrap: wrap; }
 .breach-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; }
 .breach-chips select, .claim-edit select { font: 13px var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 4px; padding: 3px 6px; }

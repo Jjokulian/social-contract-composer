@@ -9,6 +9,7 @@ A composer of social contracts. The scale: a **milli** is a composed Social Cont
 - `public/compose.mjs`, `public/evaluate.mjs`, `public/picos.mjs`: pure modules shared by the server, the static build and the browser.
 - `tools/build-static.mjs` + `.github/workflows/pages.yml`: the GitHub Pages site, deployed on every push to `main`.
 - `tools/picos.mjs`: list, find and check picos (see the `write-with-picos` skill).
+- Composition operators (`contract_operation`: abrogate, derogate, subrogate, obrogate) and resolution maxims (`contract_resolution`: superior, specialis, posterior) are applied in `public/compose.mjs` and `public/evaluate.mjs`; nothing an operator acts on is deleted from view.
 - Socioship (having signed a milli) is structure, not content: `socioship_term` lists the terms every milli defines and `contract_socioship` which of its nanos define them. Never store it as a contract.
 - `public/space.mjs`: demesnes. A signed milli implemented on a segment of a coordinate space is a demesne (`demesne_rev`), not a nano; its deme is whoever the milli defines as the deme, and demesnes within a demesne can have different demes. How demesnes nest is computed, never stored. A layer is a viewing selection (a nesting level, or one milli's demesnes), shown or hidden on the Globe (`public/globe.js`).
 

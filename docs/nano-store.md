@@ -87,6 +87,12 @@ An **influence** records that one measure *raises*, *lowers*, *bears on* or *sta
 - **Tensions** — clauses that support one intent and hinder another.
 - **Disagreements** — with their context diff and class.
 
+## Operators and resolution
+
+A composition acts on what it includes with the operators Roman law named: it **abrogates** a whole included contract, **derogates** one of its nanos, **subrogates** a nano into it, or **obrogates** one of its nanos with another (`contract_operation`, optionally citing the nano whose words make the operation). Rogation and nesting are `contract_include`, where one include can be marked the **base**. Nothing is deleted: the composition shows what each operator acts on, struck through. Operators can't act on intents; an intent changes by a new revision of the contract.
+
+Conflicts no operator settles are resolved by the maxims the composition states, in its order (`contract_resolution`): **lex superior** (what comes through the base outranks), **lex specialis** (the nano the composition declares special, in `contract_specialis`, prevails) and **lex posterior** (what the later-composed contract brings prevails). The losing side is set aside: its claims stop counting towards coverage. With no maxim deciding, the conflict stays open and both sides stand.
+
 ## Socioship: structure every milli fills
 
 Socioship is the relation of having signed a milli together with other persons. It is structure, not content: no contract holds it. `socioship_term` lists the terms every milli defines (how a new signature takes effect, how the born join, the conditions of socioship, how it is lost, what is kept, who the deme is), and `contract_socioship` records which of a milli's clauses or definitions define each. A trigger refuses them on a micro. The composition carries each term from the outermost contract that defines it; the report marks it defined, held by its default (only admission has one: every signatoree signs too), or a gap. A clause that defines a term serves the milli's structure, so it is never an orphan.

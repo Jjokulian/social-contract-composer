@@ -242,12 +242,68 @@ test('a social contract nests, adds, and surfaces clashes, conflicts, gaps and o
   const r = report(db, contracts.town);
   assert.deepEqual(r.tree.map(n => n.ref), [refs.livable, refs.power, refs.quiet]);
   assert.equal(r.tree[0].children[0].ref, refs.greenStreets, 'street-trees hangs under livable-town');
-  assert.deepEqual(r.checks.definitionClashes, [{ term: 'street-tree', definitions: ['street-tree@1', 'street-tree-broad@1'], kind: 'senses' }]);
+  assert.deepEqual(r.checks.definitionClashes, [{ term: 'street-tree', definitions: ['street-tree@1', 'street-tree-broad@1'], kind: 'senses', resolution: null }]);
   assert.deepEqual(r.nanos['street-tree@1'].forms, ['street tree'], 'a pico with no stated forms is referred to by its term');
   assert.deepEqual(r.nanos['street-tree-broad@1'].forms, ['street tree', 'street trees'], 'stated forms are the words that refer to it');
-  assert.deepEqual(r.checks.conflicts, [{ claim: refs.treesVsCables, between: [refs.plant, refs.cables], endorsed: false }]);
+  assert.deepEqual(r.checks.conflicts, [{ claim: refs.treesVsCables, between: [refs.plant, refs.cables], endorsed: false, resolution: null }]);
   assert.deepEqual(r.checks.gaps, [refs.quiet]);
   assert.deepEqual(r.checks.orphans, [refs.party]);
+});
+
+test('operators act on what a composition includes, and its maxims resolve the conflicts that remain', () => {
+  const { db, refs, contracts } = buildFixture();
+  const milli = (id, body) => addContract(db, { id, scale: 'social', title: id, filedBy: 'planners', source: 'test', ...body }).ref;
+  const both = (base = false) => [{ contract: contracts.streetTrees, mode: 'add', base }, { contract: contracts.utilities, mode: 'add' }];
+
+  // Planting at every interval conflicts with the cable corridor. With no maxims, the conflict stays open and both stand.
+  let r = report(db, milli('open', { includes: both() }));
+  assert.equal(r.checks.conflicts[0].resolution, null);
+  assert.equal(find(r.tree, refs.power).coverage, 'claimed');
+
+  // Lex superior: the base outranks, and the side that loses is set aside, so its claims stop counting.
+  r = report(db, milli('base-trees', { includes: both(true), resolution: ['superior'] }));
+  assert.deepEqual(r.checks.conflicts[0].resolution, { prevails: refs.plant, setAside: refs.cables, by: 'superior' });
+  assert.equal(find(r.tree, refs.power).coverage, 'gap', 'the set-aside corridor no longer keeps the power on');
+  assert.deepEqual(r.checks.setAside, [refs.cables]);
+  assert.ok(!r.checks.orphans.includes(refs.cables), 'a set-aside clause is shown under its conflict, not as an orphan');
+
+  // Lex posterior: utilities was composed after street-trees, so its corridor prevails.
+  assert.equal(report(db, milli('later-wins', { includes: both(), resolution: ['posterior'] })).checks.conflicts[0].resolution.prevails, refs.cables);
+
+  // Lex specialis, stated before lex superior: the corridor, declared special to planting, prevails even over the base.
+  assert.deepEqual(report(db, milli('special-wins', { includes: both(true), resolution: ['specialis', 'superior'],
+    specialis: [{ special: refs.cables, general: refs.plant }] })).checks.conflicts[0].resolution,
+    { prevails: refs.cables, setAside: refs.plant, by: 'specialis' });
+
+  // Abrogation takes a whole included contract out, and is kept to be shown.
+  const repealed = milli('repealed', { includes: both(), operations: [{ op: 'abrogate', contract: contracts.utilities }] });
+  r = report(db, repealed);
+  assert.ok(!find(r.tree, refs.power), 'an abrogated contract’s intents leave the composition');
+  assert.ok(!r.clauses.includes(refs.cables));
+  assert.deepEqual(r.checks.operations.map(o => [o.op, o.contract, o.by]), [['abrogate', contracts.utilities, repealed]]);
+
+  // Derogation takes one provision out: its claims leave scope, and it stays visible.
+  r = report(db, milli('derogated', { includes: [{ contract: contracts.streetTrees, mode: 'add' }], operations: [{ op: 'derogate', nano: refs.barriers }] }));
+  assert.ok(!r.clauses.includes(refs.barriers));
+  assert.ok(!r.claims[refs.barrierHolds], 'claims about a derogated clause leave scope');
+  assert.ok(r.nanos[refs.barriers], 'what an operator acts on stays visible');
+
+  // Obrogation replaces a provision; subrogation adds one into an included contract.
+  const everySecond = addNano(db, { id: 'plant-every-second', kind: 'clause', role: 'council', modality: 'shall',
+    text: 'Plant a tree at every second spacing interval.', filedBy: 'planners', source: 'test' }).ref;
+  r = report(db, milli('obrogated', { includes: [{ contract: contracts.streetTrees, mode: 'add' }],
+    operations: [{ op: 'obrogate', nano: refs.plant, replacement: everySecond }] }));
+  assert.ok(r.clauses.includes(everySecond) && !r.clauses.includes(refs.plant));
+  r = report(db, milli('subrogated', { includes: [{ contract: contracts.streetTrees, mode: 'add' }],
+    operations: [{ op: 'subrogate', contract: contracts.streetTrees, nano: refs.party }] }));
+  assert.ok(r.clauses.includes(refs.party));
+
+  // The store keeps operators well-formed, and a new revision carries them.
+  assert.throws(() => milli('bad-target', { includes: both(), operations: [{ op: 'derogate', nano: refs.shade }] }), /operators act on provisions/);
+  assert.throws(() => milli('no-replacement', { includes: both(), operations: [{ op: 'obrogate', nano: refs.plant }] }), /CHECK constraint failed/);
+  const next = reviseContract(db, 'base-trees', { filedBy: 'planners', source: 'test' }).ref;
+  assert.deepEqual(catalogue(db).contracts[next].resolution, ['superior']);
+  assert.equal(catalogue(db).contracts[next].includes.find(i => i.ref === contracts.streetTrees).base, true);
 });
 
 test('socioship is structure: every milli defines its terms, and what it leaves undefined is a gap', () => {

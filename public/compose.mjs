@@ -3,7 +3,7 @@
 // draft built on the canvas is composed exactly as a stored contract is.
 //
 //   catalogue: { nanos: { ref: nano }, contracts: { ref: contract }, observations: { measureId: { society: obs } } }
-//   spec:      a contract ({ ref, intents, edges, members, parameters, includes, … }), stored or drafted
+//   spec:      a contract ({ ref, intents, edges, members, parameters, includes, operations, resolution, … }), stored or drafted
 import { nanoId } from './evaluate.mjs';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -11,31 +11,60 @@ const fail = (message, status = 400) => Object.assign(new Error(message), { stat
 export function compose(cat, spec) {
   const contractOf = ref => cat.contracts[ref] ?? (() => { throw fail(`no contract ${ref}`, 404); })();
   const nanoOf = ref => cat.nanos[ref] ?? (() => { throw fail(`no nano ${ref}`, 404); })();
+  const keyOf = c => c.ref ?? '(draft)';
 
-  // Every contract the composition reaches, with its nesting depth (0 = the composition itself).
+  // Every contract the composition reaches, with its nesting depth (0 = the composition itself) and the include of the
+  // composition it is reached through, which says whether it comes through the base. An abrogated contract is not
+  // reached: the operators of each contract act on what it includes, outer contracts first.
   const reached = new Map();
-  const queue = [[spec, 0]];
+  const abrogated = new Map();   // contract ref → the abrogation
+  const queue = [[spec, 0, null]];
   while (queue.length) {
-    const [c, depth] = queue.shift();
-    const key = c.ref ?? '(draft)';
-    if (reached.has(key) && reached.get(key).depth <= depth) continue;
-    reached.set(key, { c, depth });
-    for (const inc of c.includes ?? []) queue.push([contractOf(inc.ref), depth + 1]);
+    const [c, depth, via] = queue.shift();
+    const key = keyOf(c);
+    if (abrogated.has(key) || (reached.has(key) && reached.get(key).depth <= depth)) continue;
+    reached.set(key, { c, depth, via });
+    for (const o of c.operations ?? []) if (o.op === 'abrogate' && !abrogated.has(o.contract)) abrogated.set(o.contract, { ...o, by: key });
+    for (const inc of c.includes ?? []) if (!abrogated.has(inc.ref)) queue.push([contractOf(inc.ref), depth + 1, via ?? inc]);
   }
   const order = [...reached.values()].sort((a, b) => a.depth - b.depth || (a.c.crid ?? 0) - (b.c.crid ?? 0));
 
-  // Members: every intent, member and parameter any reached contract brings in.
-  const members = new Set();
+  // Members: every intent, member and parameter any reached contract brings in, with the outermost contract that brings
+  // it. Then the other operators act on them, outer contracts first. Nothing they act on is dropped from view.
+  const members = new Set(), origin = new Map();
+  const bring = (ref, key) => { members.add(ref); if (!origin.has(ref)) origin.set(ref, key); };
   for (const { c } of order) {
-    c.intents.forEach(i => members.add(i.ref));
-    c.members.forEach(m => members.add(m));
-    Object.keys(c.parameters ?? {}).forEach(p => members.add(p));
-    (c.socioship ?? []).forEach(s => members.add(s.nano));   // a nano that defines a socioship term is part of the milli
+    const key = keyOf(c);
+    c.intents.forEach(i => bring(i.ref, key));
+    c.members.forEach(m => bring(m, key));
+    Object.keys(c.parameters ?? {}).forEach(p => bring(p, key));
+    (c.socioship ?? []).forEach(s => bring(s.nano, key));   // a nano that defines a socioship term is part of the milli
   }
+  const operations = [...abrogated.values()];
+  for (const { c } of order)
+    for (const o of c.operations ?? []) {
+      if (o.op === 'abrogate') continue;
+      if (o.op === 'derogate') members.delete(o.nano);
+      if (o.op === 'obrogate') {   // the replacement takes the place, and the rank, of what it replaces
+        members.delete(o.nano);
+        members.add(o.replacement);
+        origin.set(o.replacement, origin.get(o.nano) ?? keyOf(c));
+      }
+      if (o.op === 'subrogate') { members.add(o.nano); origin.set(o.nano, reached.has(o.contract) ? o.contract : keyOf(c)); }
+      operations.push({ ...o, by: keyOf(c) });
+    }
   members.forEach(nanoOf);
   const has = ref => members.has(ref);
   const byRid = refs => [...refs].sort((a, b) => nanoOf(a).rid - nanoOf(b).rid);
   const ofKind = kind => byRid([...members].filter(ref => nanoOf(ref).kind === kind));
+
+  // For the maxims that resolve conflicts: whether a member comes through the composition's base (lex superior), and how
+  // late the contract that brings it was composed (lex posterior; a draft is the latest).
+  const provenance = Object.fromEntries([...members].map(ref => {
+    const { c, via } = reached.get(origin.get(ref)) ?? {};
+    return [ref, { from: origin.get(ref), base: Boolean(via?.base), order: c?.crid ?? Number.MAX_SAFE_INTEGER }];
+  }));
+  const specialis = order.flatMap(({ c }) => c.specialis ?? []);
 
   // Parameter values: the outermost contract that sets one wins.
   const values = new Map();
@@ -68,7 +97,7 @@ export function compose(cat, spec) {
   const edges = byAge.flatMap(({ c }) => c.edges);
   for (const { c } of byAge) {
     for (const inc of c.includes ?? []) {
-      if (inc.mode !== 'nest') continue;
+      if (inc.mode !== 'nest' || !reached.has(inc.ref)) continue;
       const inner = contractOf(inc.ref);
       for (const root of inner.intents.filter(i => !inner.edges.some(e => e.child === i.ref))) edges.push({ child: root.ref, parent: inc.under });
     }
@@ -101,7 +130,7 @@ export function compose(cat, spec) {
   const socioshipBy = new Map();
   for (const { c } of order) {
     const defined = new Map();
-    for (const s of c.socioship ?? []) defined.set(s.term, [...(defined.get(s.term) ?? []), s.nano]);
+    for (const s of c.socioship ?? []) if (has(s.nano)) defined.set(s.term, [...(defined.get(s.term) ?? []), s.nano]);
     for (const [term, nanos] of defined) if (!socioshipBy.has(term)) socioshipBy.set(term, { nanos, setBy: c.ref ?? '(draft)' });
   }
   const socioship = spec.scale === 'social'
@@ -109,7 +138,8 @@ export function compose(cat, spec) {
     : null;
 
   const described = new Set([...members, ...claims.map(c => c.ref), ...claims.flatMap(c => c.measuredBy), ...influences,
-                             ...breaches.flatMap(b => b.consequences)]);
+                             ...breaches.flatMap(b => b.consequences),
+                             ...operations.flatMap(o => [o.nano, o.replacement, o.cites]).filter(Boolean)]);
 
   // The picos every described nano refers to (recorded with the nano), and the picos those picos refer to.
   for (const queue = [...described]; queue.length;)
@@ -135,10 +165,10 @@ export function compose(cat, spec) {
   return {
     contract: {
       id: spec.id, rev: spec.rev, ref: spec.ref, scale: spec.scale, title: spec.title, status: spec.status, source: spec.source,
-      includes: (spec.includes ?? []).map(i => ({ ref: i.ref, mode: i.mode })),
+      includes: (spec.includes ?? []).map(i => ({ ref: i.ref, mode: i.mode, base: Boolean(i.base) })),
     },
     parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, staleReferences, influences, breaches,
-    enforcement, roles, socioship,
+    enforcement, roles, socioship, operations, resolution: spec.resolution ?? [], specialis, provenance,
     nanos: Object.fromEntries(byRid(described).map(ref => [ref, nanoOf(ref)])),
   };
 }
