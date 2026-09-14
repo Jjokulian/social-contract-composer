@@ -21,8 +21,30 @@ export function openStore(path = DEFAULT_PATH, { readonly = false } = {}) {
   return db;
 }
 
+// Every table that holds a revision, a part of one, or the identity of a nano, contract or demesne. Nothing written to
+// them can be changed or removed: to change anything, add a new revision. (The vocabularies — authors, roles, terms,
+// units, societies, spaces — only grow, but their labels may be corrected.)
+export const APPEND_ONLY = [
+  'nano', 'revision', 'intent_body', 'clause_body', 'definition_body', 'definition_form', 'nano_pico', 'nano_implementation',
+  'parameter_body', 'measure_body', 'assumption_body', 'claim_body', 'claim_given', 'claim_when', 'claim_assuming', 'claim_measure',
+  'evaluation_body', 'influence_body', 'consequence_body', 'unit_body', 'unit_depends',
+  'contract', 'contract_rev', 'contract_intent', 'contract_refines', 'contract_member', 'contract_parameter', 'contract_include',
+  'contract_breach', 'contract_enforcement', 'contract_socioship', 'contract_operation', 'contract_resolution', 'contract_specialis',
+  'demesne', 'demesne_rev',
+];
+
 // Columns added after a store was first created. Adding a column changes no existing revision's content.
 function migrate(db) {
+  // Where schema.sql guards a table with its own, more telling message, that guard stays; elsewhere this one fills the gap.
+  const triggers = db.prepare("SELECT name, tbl_name AS tbl, sql FROM sqlite_master WHERE type = 'trigger'").all();
+  for (const table of APPEND_ONLY)
+    for (const [event, suffix] of [['UPDATE', 'u'], ['DELETE', 'd']]) {
+      const generic = `${table}_append_only_${suffix}`;
+      const own = triggers.some(t => t.tbl === table && t.name !== generic && new RegExp(`BEFORE\\s+${event}\\s+ON`, 'i').test(t.sql));
+      if (own) db.exec(`DROP TRIGGER IF EXISTS ${generic}`);
+      else db.exec(`CREATE TRIGGER IF NOT EXISTS ${generic} BEFORE ${event} ON ${table}
+                      BEGIN SELECT RAISE(ABORT, 'the store is append-only: add a new revision instead'); END;`);
+    }
   const columns = db.prepare('PRAGMA table_info(clause_body)').all().map(c => c.name);
   if (!columns.includes('binding')) db.exec("ALTER TABLE clause_body ADD COLUMN binding TEXT CHECK (binding IN ('work', 'abide', 'liberty'))");
   if (!db.prepare('PRAGMA table_info(contract_include)').all().some(c => c.name === 'base'))

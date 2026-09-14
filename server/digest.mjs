@@ -5,8 +5,10 @@
 //
 // Agents read a service's units and look up what the stores already hold, so that a concept is defined once and named
 // consistently; their proposals are reconciled into one digest, applied here as new revisions filed by claude-draft.
+import Database from 'better-sqlite3';
 import { addVocabulary, addNano, reviseContract, catalogue } from './store.mjs';
 import { relinkContract } from './relink.mjs';
+import { heldPicos, currentUnits } from './platform.mjs';
 import { suggest } from '../public/picos.mjs';
 
 const latestOf = list => { const by = new Map(); for (const x of list) if (!by.has(x.id) || by.get(x.id).rev < x.rev) by.set(x.id, x); return by; };
@@ -66,7 +68,19 @@ export function apply(db, digest, { source = 'digested by agents from the platfo
     for (const [id, label] of digest.roles ?? []) addVocabulary(db, 'role', id, label);
     const cat = catalogue(db);
     const nanos = latestOf(Object.values(cat.nanos)), contracts = latestOf(Object.values(cat.contracts));
-    const unit = id => { if (nanos.get(id)?.kind !== 'unit') throw new Error(`no unit of software ${id}`); return id; };
+    const live = currentUnits(contracts);   // only code that a current file holds can implement anything
+    const unit = id => { if (!live.has(id)) throw new Error(`no unit of software ${id} in any current file`); return id; };
+
+    // No new pico may take a form another pico already has: a form links wherever it occurs, so it must mean one thing.
+    const formOwner = new Map(heldPicos(contracts, nanos).flatMap(p => p.forms.map(f => [f.toLowerCase(), p.id])));
+    for (const p of digest.picos ?? []) {
+      if (nanos.has(p.id)) continue;
+      for (const f of p.forms ?? []) {
+        const owner = formOwner.get(f.toLowerCase());
+        if (owner && owner !== p.id) throw new Error(`the form “${f}” of ${p.id} already belongs to ${owner}`);
+        formOwner.set(f.toLowerCase(), p.id);
+      }
+    }
 
     // Picos first: a new one is created; an existing one gets a new revision only if it gains implementing units.
     const picoRef = new Map();
@@ -84,7 +98,7 @@ export function apply(db, digest, { source = 'digested by agents from the platfo
       }
     }
     const allPicos = [...new Map([
-      ...[...nanos.values()].filter(n => n.kind === 'definition').map(n => [n.id, { ref: n.ref, forms: n.forms }]),
+      ...heldPicos(contracts, nanos).map(n => [n.id, { ref: n.ref, forms: n.forms }]),
       ...(digest.picos ?? []).map(p => [p.id, { ref: picoRef.get(p.id), forms: p.forms ?? nanos.get(p.id).forms }]),
     ]).values()];
 
@@ -120,4 +134,14 @@ export function apply(db, digest, { source = 'digested by agents from the platfo
   // Finally each service's picos record the other picos their meanings use, by new revisions.
   for (const ref of revised) relinkContract(db, ref.split('@')[0], { filedBy: 'claude-draft', source: 'relinked to its picos by claude-draft' });
   return revised;
+}
+
+// Apply a digest to a throwaway copy of a store and say what it would add, or why it can't be applied.
+export function tryApply(db, digest) {
+  const copy = new Database(db.serialize());
+  copy.pragma('foreign_keys = ON');
+  const last = copy.prepare('SELECT max(rid) FROM revision').pluck().get();
+  const services = apply(copy, digest);
+  const kinds = copy.prepare('SELECT n.kind, count(*) AS n FROM revision r JOIN nano n ON n.id = r.nano_id WHERE r.rid > ? GROUP BY n.kind').all(last);
+  return { services, revisions: Object.fromEntries(kinds.map(k => [k.kind, k.n])) };
 }

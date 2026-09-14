@@ -252,6 +252,18 @@ function dependencies(files) {
 
 // ─── Extracting into the store, and rebuilding from it ───────────────────────
 
+// The picos the platform's units and digests may use: the vocabulary's words and the logical units digested into the
+// services, each at its latest revision. Extraction and the digest draw on this same set.
+export function heldPicos(contracts, nanos) {
+  const held = [...contracts.values()].filter(c => (c.id === 'vocabulary' || c.id.startsWith('service.')) && c.status !== 'retired').flatMap(c => c.members);
+  return [...new Set(held.map(ref => ref.split('@')[0]))].map(id => nanos.get(id)).filter(n => n?.kind === 'definition');
+}
+
+// The units of software that current files hold: what a pico or a functional unit can say implements it.
+export function currentUnits(contracts) {
+  return new Set([...contracts.values()].filter(c => c.id.startsWith('file.') && c.status !== 'retired').flatMap(c => c.members.map(ref => ref.split('@')[0])));
+}
+
 // A service's or the application's next revision keeps everything it holds besides what it includes: the intents,
 // functional units, picos and claims digested into it (server/digest.mjs) survive every change to its files.
 export const carried = c => (c ? {
@@ -280,9 +292,7 @@ export function extract(db, { root = ROOT } = {}) {
     const nanos = latestOf(Object.values(cat.nanos)), contracts = latestOf(Object.values(cat.contracts));
     // The picos units may use: the vocabulary's words, and the logical units digested into the services.
     const vocabulary = contracts.get('vocabulary');
-    const held = [...contracts.values()].filter(c => (c.id === 'vocabulary' || c.id.startsWith('service.')) && c.status !== 'retired').flatMap(c => c.members);
-    const picos = [...new Set(held.map(ref => ref.split('@')[0]))].map(id => nanos.get(id)).filter(n => n?.kind === 'definition')
-      .map(p => ({ ref: p.ref, forms: p.forms }));
+    const picos = heldPicos(contracts, nanos).map(p => ({ ref: p.ref, forms: p.forms }));
     let written = 0;
 
     // Units: a new revision only where the text, the form, the name, the dependencies or the words used changed.
