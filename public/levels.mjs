@@ -16,6 +16,7 @@ export const RELATIONS = {
   breaches: ['Breaches', 'The consequence a composition attaches to a clause'],
   precedence: ['Precedence', 'A provision prevails over another, by a maxim its milli states'],
   depends: ['Depends', 'A unit of software imports or uses another'],
+  implements: ['Implements', 'A unit of software implements a pico or a functional unit'],
 };
 const HIERARCHY = new Set(['composes', 'holds', 'uses']);   // these run downward: milli → micro → nano → pico
 const AS_CONNECTIONS = new Set(['claim', 'influence', 'evaluation']);   // nanos drawn as connections, not as nodes
@@ -99,6 +100,12 @@ export function levelGraph(cat, { scope = 'all', levels = Object.keys(LEVELS), r
       link('uses', ref, pico);
     }
   }
+  // Which units of software implement each pico and functional unit, recorded with it by the unit's id.
+  for (const id of [...nodes.keys()])
+    for (const unitId of cat.nanos[id]?.implementedBy ?? []) {
+      const target = latestNano.get(unitId);
+      if (target && addNano(target.ref)) link('implements', target.ref, id);
+    }
   // What each unit of software imports and uses, by the other unit's id (the platform follows each unit's latest revision).
   for (const id of [...nodes.keys()]) {
     const n = cat.nanos[id];

@@ -80,7 +80,7 @@ export function relinkContract(db, contractRef, { filedBy, source }) {
     const pointsAtRewritten = pointers(n).some(p => map.has(p));
     if (!differs(n, refs) && !pointsAtRewritten) return false;
     if (blockedBy.has(n.ref)) { blocked.push({ nano: n.ref, by: blockedBy.get(n.ref) }); return false; }
-    const next = addNano(db, { ...input, filedBy: n.filedBy, source, picos: refs }).ref;
+    const next = addNano(db, { ...input, filedBy: n.filedBy, source, picos: refs, implementedBy: n.implementedBy ?? [] }).ref;
     map.set(n.ref, next);
     rewritten.push([n.ref, next]);
     if (n.kind === 'definition') defined.set(n.id, { ...n, ref: next, rev: n.rev + 1, picos: refs });

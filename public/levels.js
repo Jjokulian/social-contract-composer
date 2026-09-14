@@ -71,6 +71,7 @@ const style = (t, dense = false) => [
   { selector: 'edge[kind = "influences"]', style: { 'line-color': t.ink3, 'target-arrow-color': t.ink3, width: 1 } },
   { selector: 'edge[kind = "depends"]', style: { 'line-color': t.ink3, 'target-arrow-color': t.ink3, width: 1, ...(dense ? {} : { ...edgeLabel(t), 'font-size': 9 }) } },
   { selector: 'node[kind = "unit"]', style: { 'font-family': MONO, 'font-size': 10 } },
+  { selector: 'edge[kind = "implements"]', style: { 'line-color': t.claimed, 'target-arrow-color': t.claimed, 'line-style': 'dashed', width: 1.2 } },
   { selector: 'edge[kind = "through"]', style: { 'line-style': 'dashed', 'line-dash-pattern': [3, 4], width: 1, opacity: 0.75 } },
   { selector: 'node:selected', style: { 'border-color': t.accent, 'border-width': 4 } },
   { selector: '.faded', style: { opacity: 0.12 } },
@@ -147,7 +148,7 @@ const PHRASE = {
   holds: () => 'holds', refines: () => 'refines', uses: () => 'uses', breaches: () => 'if breached, costs',
   claims: e => `${e.data('relation')}${e.data('strength') && e.data('relation') !== 'conflicts' ? ` (${e.data('strength')})` : ''}`,
   influences: e => (e.data('direction') ?? 'bears on').replace(/-/g, ' '), through: () => 'reaches, through hidden levels,',
-  depends: e => e.data('relation') ?? 'uses',
+  depends: e => e.data('relation') ?? 'uses', implements: () => 'implements',
 };
 const LEVEL_WORD = { milli: 'milli', micro: 'micro', nano: 'nano', pico: 'pico' };
 

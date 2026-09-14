@@ -32,7 +32,7 @@ export const SERVICES = [
   ['composition', 'Composition and evaluation', ['public/compose.mjs', 'public/evaluate.mjs', 'public/explain.mjs', 'server/checks.mjs']],
   ['picos', 'Writing with picos', ['public/picos.mjs', 'server/relink.mjs', 'tools/picos.mjs']],
   ['vocabulary', 'Rendering the vocabulary', ['server/vocabulary.mjs', 'tools/vocabulary.mjs']],
-  ['platform', 'The platform as data', ['server/platform.mjs', 'tools/platform.mjs']],
+  ['platform', 'The platform as data', ['server/platform.mjs', 'tools/platform.mjs', 'server/digest.mjs', 'tools/digest.mjs']],
   ['server', 'The server and its data sources', ['server/index.mjs', 'public/source.mjs']],
   ['contracts-view', 'The Contracts view', ['public/index.html', 'public/app.js']],
   ['graph-view', 'The Graph view', ['public/graph.html', 'public/graph.js']],
@@ -252,6 +252,14 @@ function dependencies(files) {
 
 // ─── Extracting into the store, and rebuilding from it ───────────────────────
 
+// A service's or the application's next revision keeps everything it holds besides what it includes: the intents,
+// functional units, picos and claims digested into it (server/digest.mjs) survive every change to its files.
+export const carried = c => (c ? {
+  intents: c.intents.map(i => ({ ref: i.ref, combine: i.combine, parent: c.edges.filter(e => e.child === i.ref).map(e => e.parent) })),
+  members: c.members, parameters: c.parameters, breaches: c.breaches, enforcement: c.enforcement,
+  socioship: c.socioship, operations: c.operations, resolution: c.resolution, specialis: c.specialis,
+} : {});
+
 const head = root => { try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(); } catch { return 'no commit'; } };
 const latestOf = list => { const by = new Map(); for (const x of list) if (!by.has(x.id) || by.get(x.id).rev < x.rev) by.set(x.id, x); return by; };
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -270,8 +278,10 @@ export function extract(db, { root = ROOT } = {}) {
     const by = { filedBy: AUTHOR[0], source: `the repository at ${head(root)} and its working tree` };
     const cat = catalogue(db);
     const nanos = latestOf(Object.values(cat.nanos)), contracts = latestOf(Object.values(cat.contracts));
+    // The picos units may use: the vocabulary's words, and the logical units digested into the services.
     const vocabulary = contracts.get('vocabulary');
-    const picos = (vocabulary?.members ?? []).map(ref => nanos.get(ref.split('@')[0])).filter(n => n?.kind === 'definition')
+    const held = [...contracts.values()].filter(c => (c.id === 'vocabulary' || c.id.startsWith('service.')) && c.status !== 'retired').flatMap(c => c.members);
+    const picos = [...new Set(held.map(ref => ref.split('@')[0]))].map(id => nanos.get(id)).filter(n => n?.kind === 'definition')
       .map(p => ({ ref: p.ref, forms: p.forms }));
     let written = 0;
 
@@ -309,14 +319,14 @@ export function extract(db, { root = ROOT } = {}) {
         services.push({ contract: current.ref, mode: 'add' });
         continue;
       }
-      services.push({ contract: addContract(db, { id, scale: 'micro', title, includes: includes.map(ref => ({ contract: ref, mode: 'add' })), ...by }).ref, mode: 'add' });
+      services.push({ contract: addContract(db, { id, scale: 'micro', title, ...carried(current), includes: includes.map(ref => ({ contract: ref, mode: 'add' })), ...by }).ref, mode: 'add' });
       written++;
     }
     const includes = [...(vocabulary ? [{ contract: vocabulary.ref, mode: 'add', base: true }] : []), ...services];
     const app = contracts.get('social-contract-composer');
     const key = list => list.map(i => `${i.ref ?? i.contract}${i.base ? '*' : ''}`).sort().join();
     if (!app || key(app.includes) !== key(includes)) {
-      addContract(db, { id: 'social-contract-composer', scale: 'social', title: 'Social Contract Composer', includes, ...by });
+      addContract(db, { id: 'social-contract-composer', scale: 'social', title: 'Social Contract Composer', ...carried(app), includes, ...by });
       written++;
     }
 

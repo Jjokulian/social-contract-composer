@@ -151,7 +151,8 @@ export const TEXT_FIELD = { intent: 'statement', clause: 'text', definition: 'me
 // Add a revision of a nano (revision 1 creates the nano). Returns { ref, rid }.
 //   picos: [{ phrase, pico }] — the phrases in its text that refer to which pico revisions, fixed with this revision.
 //          tools/picos.mjs suggests them from the picos' forms.
-export function addNano(db, { id, kind, filedBy, source, picos = [], ...body }) {
+//   implementedBy: [unit id] — for the platform's own store: the units of software that implement this pico or nano.
+export function addNano(db, { id, kind, filedBy, source, picos = [], implementedBy = [], ...body }) {
   const write = WRITE[kind];
   if (!write) throw new StoreError(`unknown kind: ${kind}`);
   return db.transaction(() => {
@@ -167,6 +168,7 @@ export function addNano(db, { id, kind, filedBy, source, picos = [], ...body }) 
       if (!text.includes(phrase.toLowerCase())) throw new StoreError(`“${phrase}” does not occur in the text of ${id}`);
       db.prepare('INSERT INTO nano_pico (rid, phrase, pico_rid) VALUES (?, ?, ?)').run(rid, phrase, resolve(db, pico, 'definition'));
     }
+    for (const unit of new Set(implementedBy)) db.prepare('INSERT INTO nano_implementation (rid, unit_id) VALUES (?, ?)').run(rid, unit);
     return { ref: `${id}@${rev}`, rid };
   })();
 }
@@ -379,7 +381,8 @@ export function describe(db, rid) {
   if (!r) throw new StoreError(`no nano revision ${rid}`, 404);
   const picos = db.prepare('SELECT phrase, pico_rid FROM nano_pico WHERE rid = ? ORDER BY phrase').all(rid)
     .map(p => ({ phrase: p.phrase, pico: refOf(db, p.pico_rid) }));
-  return { ref: `${r.id}@${r.rev}`, ...r, ...READ[r.kind](db, rid), picos };
+  const implementedBy = db.prepare('SELECT unit_id FROM nano_implementation WHERE rid = ? ORDER BY unit_id').pluck().all(rid);
+  return { ref: `${r.id}@${r.rev}`, ...r, ...READ[r.kind](db, rid), picos, ...(implementedBy.length && { implementedBy }) };
 }
 
 // The whole store as plain JSON: every nano revision, every contract revision's structure, and every society's

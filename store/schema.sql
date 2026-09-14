@@ -235,6 +235,14 @@ CREATE TABLE IF NOT EXISTS unit_depends (
   PRIMARY KEY (rid, target_id, relation)
 ) STRICT;
 
+-- The units of software that implement a pico (a logical unit) or a nano (a functional unit), recorded with its revision
+-- and following each unit's latest revision by id. Written when the platform's services are digested (server/digest.mjs).
+CREATE TABLE IF NOT EXISTS nano_implementation (
+  rid     INTEGER NOT NULL REFERENCES revision(rid),
+  unit_id TEXT    NOT NULL REFERENCES nano(id) DEFERRABLE INITIALLY DEFERRED,
+  PRIMARY KEY (rid, unit_id)
+) STRICT;
+
 -- ─── Contracts: micro-social-contracts and Social Contracts ───────────────────
 
 CREATE TABLE IF NOT EXISTS contract (
@@ -437,7 +445,9 @@ CREATE TRIGGER IF NOT EXISTS claim_body_immutable         BEFORE UPDATE ON claim
 CREATE TRIGGER IF NOT EXISTS evaluation_body_immutable    BEFORE UPDATE ON evaluation_body    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS influence_body_immutable     BEFORE UPDATE ON influence_body     BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS consequence_body_immutable   BEFORE UPDATE ON consequence_body   BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
-CREATE TRIGGER IF NOT EXISTS unit_body_immutable          BEFORE UPDATE ON unit_body          BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
+CREATE TRIGGER IF NOT EXISTS nano_implementation_immutable_u BEFORE UPDATE ON nano_implementation BEGIN SELECT RAISE(ABORT, 'what implements a nano is fixed with its revision'); END;
+CREATE TRIGGER IF NOT EXISTS nano_implementation_immutable_d BEFORE DELETE ON nano_implementation BEGIN SELECT RAISE(ABORT, 'what implements a nano is fixed with its revision'); END;
+CREATE TRIGGER IF NOT EXISTS unit_body_immutable         BEFORE UPDATE ON unit_body          BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
 CREATE TRIGGER IF NOT EXISTS unit_depends_immutable_u     BEFORE UPDATE ON unit_depends       BEGIN SELECT RAISE(ABORT, 'a unit’s dependencies are fixed with its revision'); END;
 CREATE TRIGGER IF NOT EXISTS unit_depends_immutable_d     BEFORE DELETE ON unit_depends       BEGIN SELECT RAISE(ABORT, 'a unit’s dependencies are fixed with its revision'); END;
 CREATE TRIGGER IF NOT EXISTS definition_form_immutable    BEFORE UPDATE ON definition_form    BEGIN SELECT RAISE(ABORT, 'revisions are immutable: add a new revision'); END;
