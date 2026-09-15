@@ -25,7 +25,7 @@ import { suggest } from '../public/picos.mjs';
 import { latestById } from '../public/common.mjs';
 
 export const ROOT = fileURLToPath(new URL('../', import.meta.url));
-const EXCLUDED = [/\.sqlite$/, /^cresume\.txt$/, /^dist\//];   // outputs, and a personal note: not the software
+const EXCLUDED = [/\.sqlite$/, /^dist\//];   // outputs: not the software
 const AUTHOR = ['platform', 'Extracted from the repository by tools/platform.mjs'];
 
 // The services the platform is made of, by the files that make each. A file no service claims falls into "Other files".

@@ -3,3 +3,7 @@ node_modules/
 *.sqlite-wal
 *.sqlite-shm
 dist/
+
+# Personal notes, kept locally and out of the repository
+cresume.txt
+vantage-alignment.md
