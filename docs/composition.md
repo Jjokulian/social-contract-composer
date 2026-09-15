@@ -35,7 +35,8 @@ The contract with precedence decides each of these:
 - parameter values;
 - consequences of breach;
 - who detects breaches;
-- the nanos defining each socioship term.
+- the nanos defining each socioship term;
+- which of two provisions is special to the other, for lex specialis (one declaration per pair, whichever way it goes).
 
 ## 6. Conflicts left
 

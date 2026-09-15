@@ -84,7 +84,13 @@ export function compose(cat, spec) {
     const { c, via } = reached.get(origin.get(ref)) ?? {};
     return [ref, { from: origin.get(ref), base: Boolean(via?.base), order: c?.crid ?? Number.MAX_SAFE_INTEGER }];
   }));
-  const specialis = order.flatMap(({ c }) => c.specialis ?? []);
+  // Which of two provisions is special to the other, for lex specialis: for each pair, the contract with precedence that
+  // declares either way decides.
+  const specialis = [];
+  for (const { c } of order)
+    for (const s of c.specialis ?? [])
+      if (!specialis.some(x => [x.special, x.general].includes(s.special) && [x.special, x.general].includes(s.general)))
+        specialis.push({ special: s.special, general: s.general, by: keyOf(c) });
 
   // Parameter values: the contract with precedence that sets one decides.
   const values = new Map();
@@ -191,13 +197,15 @@ export function compose(cat, spec) {
     for (const { phrase, pico } of nanoOf(ref).picos ?? [])
       if (current.has(nanoId(pico)) && current.get(nanoId(pico)) !== pico)
         staleReferences.push({ nano: ref, phrase, pico, current: current.get(nanoId(pico)) });
+  // What the composition reached beyond itself, how deep, and through which of its own includes.
+  const reachedBeyond = order.filter(x => x.depth > 0).map(({ c, depth, via }) => ({ ref: keyOf(c), depth, via: via?.ref ?? null }));
   return {
     contract: {
       id: spec.id, rev: spec.rev, ref: spec.ref, scale: spec.scale, title: spec.title, status: spec.status, source: spec.source,
       includes: (spec.includes ?? []).map(i => ({ ref: i.ref, mode: i.mode, base: Boolean(i.base) })),
     },
     parameters, claims, disagreements, observations, intents, edges, clauses, definitionClashes, staleReferences, influences, breaches,
-    enforcement, roles, socioship, operations, resolution: spec.resolution ?? [], specialis, provenance, code,
+    enforcement, roles, socioship, operations, resolution: spec.resolution ?? [], specialis, provenance, code, reached: reachedBeyond,
     nanos: Object.fromEntries(byRid(described).map(ref => [ref, nanoOf(ref)])),
   };
 }

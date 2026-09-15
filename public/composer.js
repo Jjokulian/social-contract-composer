@@ -30,7 +30,7 @@ const text = n => n.statement ?? n.text ?? n.meaning ?? n.label ?? n.ref;
 
 const blank = () => ({ id: 'draft', scale: 'social', title: 'My Social Contract', territory: '', status: 'draft',
   intents: [], edges: [], members: [], parameters: {}, includes: [], breaches: [], enforcement: [], socioship: [],
-  operations: [], resolution: [], nanos: {} });
+  operations: [], resolution: [], specialis: [], nanos: {} });
 
 // The maxims a milli may resolve conflicts by, in their customary order: a later general law does not repeal an earlier
 // special one (lex posterior generalis non derogat priori speciali), so specialis comes before posterior.
@@ -41,6 +41,13 @@ const BINDING_TIP = { work: 'Work to carry out', abide: 'A rule to abide by; bre
 const bindingChip = n => n.binding ? `<span class="binding ${n.binding}" title="${BINDING_TIP[n.binding]}">${n.binding}</span>` : '';
 const roleLabel = id => cat.roles?.find(r => r.id === id)?.label ?? id;
 const roleId = label => cat.roles?.find(r => r.label.toLowerCase() === label.trim().toLowerCase() || r.id === label.trim())?.id ?? label.trim();
+const contractTitle = ref => cat.contracts[ref]?.title ?? ref;
+const samePair = (s, a, b) => (s.special === a && s.general === b) || (s.special === b && s.general === a);
+// An operator as the canvas lists it: what it sets aside struck through, what it brings in plain.
+const operationText = o => o.op === 'abrogate' ? `<s>${esc(contractTitle(o.contract))}</s> <span class="ref">${esc(o.contract)}</span>`
+  : o.op === 'derogate' ? `<s>${esc(short(text(nano(o.nano)), 120))}</s>`
+  : o.op === 'obrogate' ? `<s>${esc(short(text(nano(o.nano)), 60))}</s> → ${esc(short(text(nano(o.replacement)), 60))}`
+  : `${esc(short(text(nano(o.nano)), 80))} → into ${esc(contractTitle(o.contract))}`;
 
 function example() {
   const d = blank();
@@ -103,6 +110,23 @@ const ops = {
   toggleBase(ref) { draft.includes = draft.includes.map(i => i.ref === ref ? { ...i, base: !i.base } : i); },
   derogate(ref) { if (!draft.operations.some(o => o.op === 'derogate' && o.nano === ref)) draft.operations.push({ op: 'derogate', nano: ref }); },
   undoOperation(index) { draft.operations.splice(index, 1); },
+  abrogate(ref) { if (!draft.operations.some(o => o.op === 'abrogate' && o.contract === ref)) draft.operations.push({ op: 'abrogate', contract: ref }); },
+  // A replacement, or a provision added into an included contract, takes that place and rank: it is no longer your own.
+  obrogate(ref, replacement) {
+    if (replacement === ref) return;
+    draft.operations = draft.operations.filter(o => !(o.op === 'obrogate' && o.nano === ref));   // one replacement per provision
+    draft.members = draft.members.filter(m => m !== replacement);
+    draft.operations.push({ op: 'obrogate', nano: ref, replacement });
+  },
+  subrogate(contract, ref) {
+    draft.operations = draft.operations.filter(o => !(o.op === 'subrogate' && o.nano === ref));
+    draft.members = draft.members.filter(m => m !== ref);
+    draft.operations.push({ op: 'subrogate', contract, nano: ref });
+  },
+  declareSpecial(a, b, special) {   // for lex specialis: one declaration per pair, or none
+    draft.specialis = draft.specialis.filter(s => !samePair(s, a, b));
+    if (special) draft.specialis.push({ special, general: special === a ? b : a });
+  },
   setMaxim(maxim, on) {
     const chosen = new Set(draft.resolution);
     if (on) chosen.add(maxim); else chosen.delete(maxim);
@@ -129,8 +153,14 @@ function dropOn(target, targetRef, { type, ref }) {
     else if (type === 'clause') ops.addClaim(ref, targetRef);
     else ops.addMember(ref);
   } else if (target === 'clause') {
-    if (type !== 'consequence') return hint('Only consequences attach to a clause.');
-    ops.attach(targetRef, ref);
+    if (type === 'clause') {   // obrogate: the dropped clause replaces an included one
+      if (draft.members.includes(targetRef)) return hint('That clause is your own: remove it rather than replacing it.');
+      ops.obrogate(targetRef, ref);
+    } else if (type === 'consequence') ops.attach(targetRef, ref);
+    else return hint('Drop a consequence onto a clause to attach it, or another clause to replace it.');
+  } else if (target === 'contract') {   // subrogate: the dropped provision is added into the included contract, with its rank
+    if (type !== 'clause' && type !== 'definition') return hint('Drop a clause or definition onto a contract’s name to subrogate it into that contract.');
+    ops.subrogate(targetRef, ref);
   }
   status('');
   change();
@@ -179,12 +209,21 @@ function renderCanvas(out) {
       </li>`;
   };
 
+  // The contracts reached through each include, beyond it: what the composition may abrogate.
+  const through = ref => {
+    const beyond = (out?.snap.reached ?? []).filter(x => x.via === ref && x.ref !== ref);
+    return beyond.length ? `<ul class="rows">${beyond.map(x => `
+      <li class="row"><span class="row-text">Through it: ${esc(contractTitle(x.ref))} <span class="ref">${esc(x.ref)}</span></span>
+        <button type="button" class="chip toggle" data-action="abrogate" data-ref="${esc(x.ref)}"
+          title="Abrogate: take this whole contract out of effect in your milli; it stays listed under Operators">abrogate</button></li>`).join('')}</ul>` : '';
+  };
+
   const blocks = draft.includes.map(i => {
     const c = cat.contracts[i.ref];
     const roots = c ? c.intents.filter(x => !c.edges.some(e => e.child === x.ref)) : [];
     return `
       <div class="block">
-        <div class="block-head">
+        <div class="block-head" data-drop="contract" data-ref="${esc(i.ref)}">
           <strong>${esc(c?.title ?? i.ref)}</strong>
           <span class="chip">${i.mode === 'nest' ? `nested under “${esc(short(text(nano(i.under)), 40))}”` : 'added'}</span>
           <button type="button" class="chip toggle${i.base ? ' on' : ''}" data-action="base" data-ref="${esc(i.ref)}" aria-pressed="${Boolean(i.base)}"
@@ -192,6 +231,7 @@ function renderCanvas(out) {
           <button type="button" class="x" data-action="remove-include" data-ref="${esc(i.ref)}" aria-label="Remove ${esc(c?.title ?? i.ref)}">×</button>
         </div>
         <span class="ref">${esc(i.ref)}${c?.status === 'proposed' ? ' · a proposal' : ''}</span>
+        ${through(i.ref)}
         <ul class="rows">${roots.map(r => intentRow(r.ref, false)).join('')}</ul>
       </div>`;
   }).join('');
@@ -199,6 +239,8 @@ function renderCanvas(out) {
   const included = new Set(draft.includes.flatMap(i => cat.contracts[i.ref]?.intents.map(x => x.ref) ?? []));
   const ownRoots = draft.intents.filter(i => !draft.edges.some(e => e.child === i.ref) && !included.has(i.ref));
   const members = draft.members.filter(m => !draft.nanos[m]);
+  const ownClauses = members.filter(m => nano(m).kind === 'clause');
+  const conflicts = out?.r.checks.conflicts ?? [];
   const claims = Object.values(draft.nanos).filter(n => n.kind === 'claim');
   const clauses = out?.snap.clauses ?? [];
   const inherited = new Map((out?.r.breaches ?? []).filter(b => b.setBy !== '(draft)').map(b => [b.clause, b]));
@@ -206,7 +248,7 @@ function renderCanvas(out) {
   const definers = [...clauses, ...Object.values(out?.snap.nanos ?? {}).filter(n => n.kind === 'definition').map(n => n.ref)];
 
   $('#canvas-body').innerHTML = `
-    <div class="drop" data-drop="root">Drop a contract, intent, clause or definition here. Drop onto an intent to nest a contract, refine the intent, or claim that a clause serves it.</div>
+    <div class="drop" data-drop="root">Drop a contract, intent, clause or definition here. Drop onto an intent to nest a contract, refine the intent, or claim that a clause serves it. Drop a clause onto a contract’s name to subrogate it into that contract.</div>
 
     <section class="canvas-section"><h2>Contracts</h2>
       ${blocks || '<p class="empty">No contracts yet. Drag one from the library.</p>'}
@@ -219,6 +261,8 @@ function renderCanvas(out) {
     <section class="canvas-section"><h2>Your clauses and definitions</h2>
       ${members.length ? `<ul class="rows">${members.map(m => `
         <li class="row"><span class="modality">${esc(nano(m).modality ?? nano(m).termLabel ?? '')}</span>${bindingChip(nano(m))}<span class="row-text">${esc(short(text(nano(m)), 140))}</span>
+        ${draft.includes.length && ['clause', 'definition'].includes(nano(m).kind) ? `<select data-action="subrogate" data-ref="${esc(m)}" aria-label="Subrogate into an included contract, to rank as it">
+          <option value="">Subrogate into…</option>${draft.includes.map(i => `<option value="${esc(i.ref)}">${esc(contractTitle(i.ref))}</option>`).join('')}</select>` : ''}
         <button type="button" class="x" data-action="remove-member" data-ref="${esc(m)}" aria-label="Remove">×</button></li>`).join('')}</ul>`
         : '<p class="empty">None yet.</p>'}
     </section>
@@ -256,6 +300,8 @@ function renderCanvas(out) {
             <span class="breach-chips">
               ${draft.members.includes(cl) ? '' : `<button type="button" class="chip toggle" data-action="derogate" data-ref="${esc(cl)}"
                 title="Derogate: set this included clause aside in your milli; it stays listed under Operators">derogate</button>`}
+              ${draft.members.includes(cl) || !ownClauses.length ? '' : `<select data-action="obrogate" data-clause="${esc(cl)}" aria-label="Obrogate: replace this included clause with one of yours">
+                <option value="">Replace with…</option>${ownClauses.map(r => `<option value="${esc(r)}">${esc(short(text(nano(r)), 70))}</option>`).join('')}</select>`}
               ${own.map(b => `<span class="chip consequence">${esc(text(nano(b.consequence)))}<button type="button" class="x" data-action="detach" data-clause="${esc(cl)}" data-ref="${esc(b.consequence)}" aria-label="Detach">×</button></span>`).join('')}
               ${theirs.map(c => `<span class="chip consequence inherited" title="set by ${esc(inherited.get(cl).setBy)}">${esc(text(nano(c)))}</span>`).join('')}
               <select data-action="attach" data-clause="${esc(cl)}" aria-label="Attach a consequence">
@@ -267,11 +313,31 @@ function renderCanvas(out) {
     </section>
 
     <section class="canvas-section"><h2>Operators and resolution</h2>
-      <p class="lede">Mark an included contract as the base, derogate an included clause from its row above, and choose the maxims that resolve the conflicts no operator settles. Nothing is deleted: what you set aside stays listed here.</p>
+      <p class="lede">Operators act on what your milli includes, and nothing is deleted: what you set aside stays listed here.
+        <strong>Abrogate</strong> a contract reached through one you include, from its block above.
+        <strong>Derogate</strong> an included clause, or <strong>obrogate</strong> it by dropping another clause onto its row, under “If a clause is breached”.
+        <strong>Subrogate</strong> a clause into an included contract, to rank as that contract, by dropping it onto the contract’s name.
+        Mark one included contract as the base, and choose the maxims that resolve the conflicts no operator settles.</p>
       ${draft.operations.length ? `<ul class="rows">${draft.operations.map((o, i) => `
-        <li class="row"><span class="modality">${esc(o.op)}</span><span class="row-text"><s>${esc(short(text(nano(o.nano)), 120))}</s></span>
+        <li class="row"><span class="modality">${esc(o.op)}</span><span class="row-text">${operationText(o)}</span>
         <button type="button" class="x" data-action="undo-operation" data-index="${i}" aria-label="Undo this ${esc(o.op)}">×</button></li>`).join('')}</ul>`
         : '<p class="empty">No operators yet.</p>'}
+      ${conflicts.length ? `<p class="lede">Which provision is special: for lex specialis, the one you declare special prevails over the general one${draft.resolution.includes('specialis') ? '' : ', once you tick lex specialis below'}.</p>
+        <ul class="rows">${conflicts.map(x => {
+          const [a, b] = x.between;
+          const own = draft.specialis.find(s => samePair(s, a, b));
+          const theirs = own ? null : (out?.snap.specialis ?? []).find(s => s.by !== '(draft)' && samePair(s, a, b));
+          return `
+          <li class="row breach-row"><span class="row-text">${esc(short(text(nano(a)), 70))} <em>conflicts with</em> ${esc(short(text(nano(b)), 70))}</span>
+            <span class="breach-chips">
+              ${theirs ? `<span class="chip inherited" title="declared by ${esc(theirs.by)}">the ${theirs.special === a ? 'first' : 'second'} is special</span>` : ''}
+              <select data-action="special" data-a="${esc(a)}" data-b="${esc(b)}" aria-label="Which provision is special">
+                <option value="">${theirs ? 'As declared' : 'Neither is special'}</option>
+                <option value="${esc(a)}"${own?.special === a ? ' selected' : ''}>The first is special</option>
+                <option value="${esc(b)}"${own?.special === b ? ' selected' : ''}>The second is special</option>
+              </select>
+            </span></li>`;
+        }).join('')}</ul>` : ''}
       <fieldset class="layers"><legend>Resolve conflicts by</legend>
         ${MAXIM_ORDER.map(m => `<label><input type="checkbox" data-action="maxim" data-maxim="${m}"${draft.resolution.includes(m) ? ' checked' : ''}> ${MAXIM_LABEL[m]}</label>`).join('')}
       </fieldset>
@@ -331,7 +397,8 @@ function renderReport() {
     <section>
       <ul class="tally">${rows.map(([label, n]) => `<li><span class="tally-row"><span>${label}</span><span class="n${n ? '' : ' zero'}">${n}</span></span></li>`).join('')}</ul>
     </section>
-    ${c.conflicts.length ? `<section><h2>Conflicts</h2>${list(c.conflicts, x => `${esc(short(text(nano(x.between[0])), 60))} <em>conflicts with</em> ${esc(short(text(nano(x.between[1])), 60))}`)}</section>` : ''}
+    ${c.conflicts.length ? `<section><h2>Conflicts</h2>${list(c.conflicts, x => `${esc(short(text(nano(x.between[0])), 60))} <em>conflicts with</em> ${esc(short(text(nano(x.between[1])), 60))}
+      <span class="lib-hint">· ${x.resolution ? `lex ${esc(x.resolution.by)} sets the ${x.resolution.setAside === x.between[0] ? 'first' : 'second'} aside` : 'open'}</span>`)}</section>` : ''}
     ${c.definitionClashes.length ? `<section><h2>Definition clashes</h2>${list(c.definitionClashes, x => `“${esc(x.term)}” is defined twice`)}</section>` : ''}
     ${c.gaps.length ? `<section><h2>Gaps</h2>${list(c.gaps, ref => esc(short(text(nano(ref)), 90)))}</section>` : ''}
     ${r.breaches.length ? `<section><h2>Consequences of breach</h2>${list(r.breaches, b => `${esc(short(text(nano(b.clause)), 60))} → ${b.consequences.map(x => esc(text(nano(x)))).join('; ')}`)}</section>` : ''}
@@ -351,7 +418,11 @@ function submit() {
   const summary = [
     `**Territory:** ${draft.territory || 'not stated'}`, '',
     '**Contracts included**', bullets(draft.includes.map(i => `\`${i.ref}\` ${i.mode === 'nest' ? `nested under \`${i.under}\`` : 'added'}${i.base ? ', as the base' : ''}`)), '',
-    '**Operators**', bullets(draft.operations.map(o => `${o.op} \`${o.nano}\`: ${short(text(nano(o.nano)), 100)}`)), '',
+    '**Operators**', bullets(draft.operations.map(o => o.op === 'abrogate' ? `abrogate \`${o.contract}\``
+      : o.op === 'derogate' ? `derogate \`${o.nano}\`: ${short(text(nano(o.nano)), 100)}`
+      : o.op === 'obrogate' ? `obrogate \`${o.nano}\`, replaced by \`${o.replacement}\``
+      : `subrogate \`${o.nano}\` into \`${o.contract}\``)), '',
+    '**Special provisions**', bullets(draft.specialis.map(s => `\`${s.special}\` is special to \`${s.general}\``)), '',
     `**Resolves conflicts by:** ${draft.resolution.map(m => MAXIM_LABEL[m]).join('; then ') || 'no maxims'}`, '',
     '**Own intents**', bullets(draft.intents.map(i => `${text(nano(i.ref))} (\`${i.ref}\`)`)), '',
     '**Own clauses and definitions**', bullets(draft.members.filter(m => !draft.nanos[m]).map(m => `${short(text(nano(m)), 120)} (\`${m}\`)`)), '',
@@ -418,6 +489,7 @@ document.addEventListener('click', e => {
   else if (action === 'undefine') ops.undefine(term, ref);
   else if (action === 'base') ops.toggleBase(ref);
   else if (action === 'derogate') ops.derogate(ref);
+  else if (action === 'abrogate') ops.abrogate(ref);
   else if (action === 'undo-operation') ops.undoOperation(Number(b.dataset.index));
   else return;
   change();
@@ -428,6 +500,9 @@ document.addEventListener('change', e => {
   if (el.dataset?.action === 'attach' && el.value) { ops.attach(el.dataset.clause, el.value); change(); }
   else if (el.dataset?.action === 'define' && el.value) { ops.define(el.dataset.term, el.value); change(); }
   else if (el.dataset?.action === 'maxim') { ops.setMaxim(el.dataset.maxim, el.checked); change(); }
+  else if (el.dataset?.action === 'special') { ops.declareSpecial(el.dataset.a, el.dataset.b, el.value); change(); }
+  else if (el.dataset?.action === 'obrogate' && el.value) { ops.obrogate(el.dataset.clause, el.value); change(); }
+  else if (el.dataset?.action === 'subrogate' && el.value) { ops.subrogate(el.value, el.dataset.ref); change(); }
   else if (el.dataset?.action === 'relation') { draft.nanos[el.dataset.ref].relation = el.value; change(); }
   else if (el.dataset?.action === 'rationale') { draft.nanos[el.dataset.ref].rationale = el.value; save(); }
   else if (el.dataset?.action === 'enforcer') {

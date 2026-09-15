@@ -306,6 +306,18 @@ test('operators act on what a composition includes, and its maxims resolve the c
     specialis: [{ special: refs.cables, general: refs.plant }] })).checks.conflicts[0].resolution,
     { prevails: refs.cables, setAside: refs.plant, by: 'specialis' });
 
+  // For each pair, the contract with precedence decides which is special: an included contract declares planting
+  // special, and the composition's own opposite declaration outranks it.
+  const plantSpecial = addContract(db, { id: 'plant-special', scale: 'micro', title: 'plant-special', filedBy: 'planners', source: 'test',
+    specialis: [{ special: refs.plant, general: refs.cables }] }).ref;
+  const withDeclarer = [...both(), { contract: plantSpecial, mode: 'add' }];
+  const declared = milli('declared-inside', { includes: withDeclarer, resolution: ['specialis'] });
+  assert.equal(report(db, declared).checks.conflicts[0].resolution.prevails, refs.plant);
+  assert.ok(snapshot(db, declared).reached.some(x => x.ref === plantSpecial && x.depth === 1 && x.via === plantSpecial),
+    'a snapshot lists the contracts it reached, and through which include');
+  assert.equal(report(db, milli('declared-over', { includes: withDeclarer, resolution: ['specialis'],
+    specialis: [{ special: refs.cables, general: refs.plant }] })).checks.conflicts[0].resolution.prevails, refs.cables);
+
   // Abrogation takes a whole included contract out, and is kept to be shown.
   const repealed = milli('repealed', { includes: both(), operations: [{ op: 'abrogate', contract: contracts.utilities }] });
   r = report(db, repealed);
