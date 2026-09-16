@@ -4,7 +4,7 @@
 // patterns for the layers below, where deeper demesnes show as islands. Click anywhere to list every demesne stacked
 // there. State lives in the URL (?space=…&by=level|milli&hide=<layers>&at=<x>,<y>&example=0|1), so a view can be linked.
 import { findSource } from './source.mjs';
-import { layering, layersOf, paint, stackAt, bbox } from './space.mjs';
+import { layering, layersOf, paint, stackAt, bbox, currentDemesnes, instant } from './space.mjs';
 import { EXAMPLE } from './example-demesnes.mjs';
 import { $, esc } from './common.mjs';
 
@@ -47,13 +47,14 @@ const swatch = cue => `<span class="swatch" aria-hidden="true"${cue ? ` style="b
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-const state = { space: 'earth', by: 'level', hidden: new Set(), at: null, example: null };
-let data, map, marker, layered = [], layers = [], cues = new Map();
+const state = { space: 'earth', by: 'level', hidden: new Set(), at: null, example: null, when: null };
+let data, map, marker, layered = [], layers = [], cues = new Map(), outOfForce = 0;
 
 function readUrl() {
   const q = new URLSearchParams(location.search);
   state.space = q.get('space') ?? 'earth';
   state.by = q.get('by') === 'milli' ? 'milli' : 'level';
+  state.when = q.get('when') || null;   // an instant: only the demesnes in force then are drawn
   state.hidden = new Set((q.get('hide') ?? '').split(',').filter(Boolean));
   const at = (q.get('at') ?? '').split(',').map(Number);
   state.at = at.length === 2 && at.every(Number.isFinite) ? at : null;
@@ -63,6 +64,7 @@ function readUrl() {
 function writeUrl() {
   const q = new URLSearchParams({ space: state.space, by: state.by });
   if (state.hidden.size) q.set('hide', [...state.hidden].join(','));
+  if (state.when) q.set('when', state.when);
   if (state.at) q.set('at', state.at.map(fmt).join(','));
   if (state.example !== null) q.set('example', state.example ? '1' : '0');
   history.replaceState(null, '', `?${q}`);
@@ -70,8 +72,13 @@ function writeUrl() {
 
 const showingExample = () => state.space === 'earth' && (state.example ?? !data.demesnes.some(d => d.space === 'earth'));
 
+// Every demesne in play: those in the store, and the examples while they are shown.
+const everyDemesne = () => [...data.demesnes, ...(showingExample() ? EXAMPLE : [])];
+
 function compute() {
-  layered = layering([...data.demesnes, ...(showingExample() ? EXAMPLE : [])], state.space);
+  const all = currentDemesnes(everyDemesne()).filter(d => d.space === state.space);
+  layered = layering(all, state.space, { when: state.when });
+  outOfForce = all.length - layered.length;
   layers = layersOf(layered, state.by);
   cues = paint(layered, layers, new Set(layers.map(l => l.key).filter(key => !state.hidden.has(key))));
 }
@@ -141,6 +148,9 @@ function fit() {
 
 const spaceOf = id => data.spaces.find(s => s.id === id) ?? { id, label: id, frame: '' };
 const nameOf = ref => esc(layered.find(d => d.ref === ref)?.name ?? ref);
+// A demesne it came after is rarely in force at the same instant, so it is looked for among all of them.
+const nameOfAny = ref => esc((layered.find(d => d.ref === ref) ?? everyDemesne().find(d => d.ref === ref))?.name ?? ref);
+const period = d => (d.from && d.until ? `${d.from} to ${d.until}` : d.from ? `from ${d.from}` : `until ${d.until}`);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const pct = x => (x < 0.01 ? 'under 1%' : `${Math.round(x * 100)}%`);
 const milli = d => d.example
@@ -163,6 +173,8 @@ function item(d) {
     d.overlaps.length ? `overlaps ${d.overlaps.map(nameOf).join(', ')}` : '',
     d.shares.length ? `on the same segment as ${d.shares.map(nameOf).join(', ')}` : '',
     segmentation(d),
+    d.from || d.until ? `in force ${period(d)}` : '',
+    d.after ? `after ${nameOfAny(d.after)}` : '',
     cue ? '' : 'its layer is hidden',
   ].filter(Boolean).join(' · ');
   return `<li style="--depth:${d.depth}"${cue ? '' : ' class="is-hidden"'}>
@@ -196,6 +208,12 @@ function layersHtml() {
     <label class="field" for="by">Layers by
       <select id="by"><option value="level">nesting level</option><option value="milli">milli</option></select>
     </label>
+    <label class="field" for="when">In force at
+      <input id="when" type="text" size="10" inputmode="numeric" placeholder="any time" value="${esc(state.when ?? '')}">
+    </label>
+    ${!state.when ? '<p class="detail-note">A year, month or day: 1789, 1789-04-30, or -0323 for 323 BC. Empty shows every demesne, whenever it was in force.</p>'
+      : !instant(state.when) ? `<p class="detail-note">“${esc(state.when)}” is not a time I can read, so every demesne is shown. Try 1789, 1789-04-30, or -0323 for 323 BC.</p>`
+      : `<p class="detail-note">The demesnes in force at ${esc(state.when)}${outOfForce ? `; ${plural(outOfForce, 'demesne')} out of force ${outOfForce === 1 ? 'is' : 'are'} hidden` : ''}.</p>`}
     ${layers.length ? `<ul class="layer-toggles">${rows}</ul>` : '<p class="empty">Layers appear once there are demesnes.</p>'}
     ${shown.length > PATTERNS.length ? `<p class="detail-note">More than ${PATTERNS.length} layers are shown, so their patterns repeat: hide some to tell them apart.</p>` : ''}
     ${state.space === 'earth' ? `<label class="example-toggle"><input type="checkbox" id="example"${showingExample() ? ' checked' : ''}> Show the example demesnes</label>` : ''}
@@ -205,7 +223,7 @@ function layersHtml() {
 function panel() {
   const space = spaceOf(state.space);
   const note = showingExample()
-    ? '<p class="proposal-note">Showing example demesnes, which are not in the catalogue: a defensive military demesne segmented exhaustively into four cultural demesnes, with islands of other demesnes within them, and an island within an island.</p>'
+    ? '<p class="proposal-note">Showing example demesnes, which are not in the catalogue: a defensive military demesne segmented exhaustively into four cultural demesnes, with islands of other demesnes within them, and an island within an island. The craft guild quarter was in force until 1890 and the works quarter came after it: set “In force at” to 1880, then 1900, to see each in its time.</p>'
     : '';
   let body;
   if (state.at) {
@@ -275,8 +293,9 @@ async function main() {
     if (key) t.checked ? state.hidden.delete(key) : state.hidden.add(key);
     else if (t.id === 'by') { state.by = t.value; state.hidden.clear(); }
     else if (t.id === 'example') state.example = t.checked;
+    else if (t.id === 'when') { state.when = t.value.trim() || null; state.at = null; }
     else return;
-    refresh({ refit: t.id === 'example' });
+    refresh({ refit: t.id === 'example' || t.id === 'when' });
     $(key ? `[data-layer="${CSS.escape(key)}"]` : `#${t.id}`)?.focus();   // the panel was redrawn; keep keyboard focus
   });
   $('#details').addEventListener('click', e => {

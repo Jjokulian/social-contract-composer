@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { openStore, listContracts, catalogue, describe, resolve, addNano, addContract, addDemesne, listDemesnes, StoreError,
          DEFAULT_PATH, SYSTEM_PATH } from './store.mjs';
 import { report, snapshot } from './checks.mjs';
-import { layering, stackAt } from '../public/space.mjs';
+import { layering, stackAt, instant } from '../public/space.mjs';
 
 const PORT = Number(process.env.PORT ?? 8800);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -54,7 +54,9 @@ const routes = [
   { method: 'GET', path: /^\/api\/spaces\/([^/]+)\/layering$/, run: ({ db, params: [space], query }) => {
     const at = query.get('at') ? query.get('at').split(',').map(Number) : null;
     if (at && (at.length !== 2 || !at.every(Number.isFinite))) throw new StoreError('at takes two numbers, x and y: ?at=12.5,55.6', 400);
-    const all = layering(listDemesnes(db).demesnes, space);
+    const when = query.get('when') || null;
+    if (when && !instant(when)) throw new StoreError('when takes a year, month or day: ?when=1789, ?when=1789-04-30, or ?when=-0323 for 323 BC', 400);
+    const all = layering(listDemesnes(db).demesnes, space, { when });
     return at ? stackAt(all, at) : all;
   } },
   { method: 'POST', path: /^\/api\/nanos$/, writes: true, run: ({ db, body }) => addNano(db, body) },

@@ -109,6 +109,28 @@ const INVERSE = { within: 'contains', contains: 'within', equal: 'equal', overla
 // The latest revision of each demesne.
 export const currentDemesnes = demesnes => [...latestById(demesnes).values()];
 
+// ─── Time ────────────────────────────────────────────────────────────────────
+//
+// A demesne is in force over a period: from an instant until another, either of which may be open. An instant is a
+// year, a month or a day as written — 1789, 1789-04, 1789-04-30, or -0323 for 323 BC — so a period can be recorded as
+// coarsely as the record itself is. A year covers all of it: a demesne that ended in 1806 was still in force in August.
+export function instant(text) {
+  const m = /^(-?\d{1,6})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(String(text ?? '').trim());
+  if (!m) return null;
+  const year = Number(m[1]), month = m[2] ? Number(m[2]) : null, day = m[3] ? Number(m[3]) : null;
+  if ((month !== null && (month < 1 || month > 12)) || (day !== null && (day < 1 || day > 31))) return null;
+  const at = (mo, d) => year * 372 + (mo - 1) * 31 + (d - 1);   // a day number, comparable across the era
+  return { text: String(text).trim(), start: at(month ?? 1, day ?? 1), end: at(month ?? 12, day ?? 31) };
+}
+
+// Whether a demesne is in force at an instant. With no instant given, or one that can't be read, every demesne counts.
+export function inForce(d, when) {
+  const w = when && (typeof when === 'string' ? instant(when) : when);
+  if (!w) return true;
+  const from = d.from ? instant(d.from) : null, until = d.until ? instant(d.until) : null;
+  return (!from || from.start <= w.end) && (!until || w.start <= until.end);
+}
+
 // Every current demesne on a coordinate space, from the outermost to the innermost, each with:
 //   level        its nesting level: 1 for a demesne within no other, 2 within one, and so on
 //   within       the demesnes it lies within, outermost first; parent, the one it lies directly within
@@ -117,8 +139,9 @@ export const currentDemesnes = demesnes => [...latestById(demesnes).values()];
 //                one another ('overlapping')
 //   overlaps, touches, shares   demesnes it overlaps, only borders, or shares its exact segment with
 //   meets        every demesne it isn't disjoint from
-export function layering(demesnes, space) {
-  const here = currentDemesnes(demesnes).filter(d => d.space === space);
+// With an instant given as `when`, only the demesnes in force then are layered: how they nest is what it was then.
+export function layering(demesnes, space, { when = null } = {}) {
+  const here = currentDemesnes(demesnes).filter(d => d.space === space && inForce(d, when));
   const rel = new Map(here.map(d => [d.ref, new Map()]));
   for (let i = 0; i < here.length; i++)
     for (let j = i + 1; j < here.length; j++) {

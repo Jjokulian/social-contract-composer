@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addNano, addContract, reviseContract, catalogue, addVocabulary, addDemesne, listContracts } from '../server/store.mjs';
-import { layering, stackAt, layersOf, paint, relate } from '../public/space.mjs';
+import { layering, stackAt, layersOf, paint, relate, instant } from '../public/space.mjs';
 import { EXAMPLE } from '../public/example-demesnes.mjs';
 import { relinkContract } from '../server/relink.mjs';
 import { report, snapshot, evaluate, compose, jointlyImpossible } from '../server/checks.mjs';
@@ -454,6 +454,35 @@ test('demesnes nest as segmentations and islands, and layers are shown or hidden
   assert.throws(() => db.prepare("UPDATE demesne_rev SET name = 'x'").run(), /immutable/);
 });
 
+test('a demesne is in force over a period, and a successor comes after another: succession is never continuity', () => {
+  const { db } = buildFixture();
+  const milli = (id, title) => addContract(db, { id, scale: 'social', title, filedBy: 'planners', source: 'test' }).ref;
+  const kingship = milli('kingship', 'Kingship'), succession = milli('successors', 'The successors');
+  const by = { space: 'earth', filedBy: 'planners', source: 'test' };
+  const empire = addDemesne(db, { ...by, id: 'empire', name: 'The empire', milli: kingship, segment: square(0, 0, 10, 10),
+    from: '-0336', until: '-0323' }).ref;
+  const north = addDemesne(db, { ...by, id: 'north', name: 'The northern share', milli: succession, segment: square(0, 5, 10, 10),
+    from: '-0323', after: empire }).ref;
+
+  // An instant is a year, a month or a day, as coarse as the record: a year covers all of it, a day is one day.
+  assert.equal(instant('1789-04-30').start, instant('1789-04-30').end);
+  assert.ok(instant('1806-08').start > instant('1806').start && instant('1806-08').end < instant('1806').end);
+  assert.equal(instant('323 BC'), null);
+
+  const at = when => layering(catalogue(db).demesnes, 'earth', { when }).map(d => d.ref).sort();
+  assert.deepEqual(at('-0330'), [empire], 'while the empire is in force, it alone');
+  assert.deepEqual(at('-0320'), [north], 'once it has ended, what came after it');
+  assert.deepEqual(at('-0323'), [empire, north].sort(), 'in the year it ended and the successor began, both');
+  assert.deepEqual(at(null), [empire, north].sort(), 'with no instant, every demesne, whenever it was in force');
+  assert.equal(catalogue(db).demesnes.find(d => d.ref === north).after, empire, 'the successor records what it came after');
+
+  const spot = { ...by, name: 'x', milli: kingship, segment: square(0, 0, 1, 1) };
+  assert.throws(() => addDemesne(db, { ...spot, id: 'muddle', from: 'the spring' }), /year, month or day/);
+  assert.throws(() => addDemesne(db, { ...spot, id: 'backwards', from: '1800', until: '1799' }), /in force until before/);
+  assert.throws(() => addDemesne(db, { ...spot, id: 'empire', after: 'empire' }), /never continuity/);
+  assert.throws(() => addDemesne(db, { ...spot, id: 'orphan', after: 'nowhere' }), /no demesne/);
+});
+
 test('the example demesnes nest as described: a shield segmented exhaustively, with islands within', () => {
   const all = layering(EXAMPLE, 'earth');
   const of = id => all.find(d => d.id === `example-${id}`);
@@ -461,4 +490,11 @@ test('the example demesnes nest as described: a shield segmented exhaustively, w
   assert.deepEqual(['shield', 'north-west', 'quiet-quarter', 'silent-garden'].map(id => of(id).level), [1, 2, 3, 4]);
   for (const id of ['craft-quarter', 'harbour-quarter', 'festival-grounds', 'scholars-quarter', 'market-quarter']) assert.equal(of(id).level, 3, id);
   assert.equal(of('north-east').segmentation.kind, 'partial');
+
+  // One quarter ends and another comes after it, so an instant shows what was in force then.
+  assert.equal(of('works-quarter').level, 3);
+  const at = when => layering(EXAMPLE, 'earth', { when }).map(d => d.id);
+  assert.ok(at('1880').includes('example-craft-quarter') && !at('1880').includes('example-works-quarter'), 'before the succession');
+  assert.ok(at('1900').includes('example-works-quarter') && !at('1900').includes('example-craft-quarter'), 'after it');
+  assert.equal(at(null).length, EXAMPLE.length, 'with no instant, every demesne, whenever it was in force');
 });

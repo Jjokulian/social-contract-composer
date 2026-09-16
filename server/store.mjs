@@ -3,7 +3,7 @@
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { checkSegment } from '../public/space.mjs';
+import { checkSegment, instant } from '../public/space.mjs';
 
 export const DEFAULT_PATH = fileURLToPath(new URL('../store/composer.sqlite', import.meta.url));
 // The platform's own structure (its vocabulary, and in time its requirements and deployments), in the same schema.
@@ -49,6 +49,12 @@ function migrate(db) {
   if (!columns.includes('binding')) db.exec("ALTER TABLE clause_body ADD COLUMN binding TEXT CHECK (binding IN ('work', 'abide', 'liberty'))");
   if (!db.prepare('PRAGMA table_info(contract_include)').all().some(c => c.name === 'base'))
     db.exec('ALTER TABLE contract_include ADD COLUMN base INTEGER NOT NULL DEFAULT 0 CHECK (base IN (0, 1))');
+  // A demesne is in force over a period, and may come after another: columns added where a store predates them.
+  if (!db.prepare('PRAGMA table_info(demesne_rev)').all().some(c => c.name === 'valid_from')) {
+    db.exec('ALTER TABLE demesne_rev ADD COLUMN valid_from TEXT');
+    db.exec('ALTER TABLE demesne_rev ADD COLUMN valid_until TEXT');
+    db.exec('ALTER TABLE demesne_rev ADD COLUMN after_drid INTEGER REFERENCES demesne_rev(drid)');
+  }
   // A contract can hold units of software: recreate the member-kind check where it predates them.
   const memberKinds = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'contract_member_kind'").pluck().get();
   if (memberKinds && !memberKinds.includes("'unit'")) { db.exec('DROP TRIGGER contract_member_kind'); db.exec(SCHEMA); }
@@ -323,18 +329,41 @@ function mergeIntents(intents, additions) {
 
 // ─── Demesnes ────────────────────────────────────────────────────────────────
 
+// A demesne reference to the revision it names: 'kingdom@2', or 'kingdom' for its latest revision.
+function resolveDemesne(db, ref) {
+  const m = /^([a-z0-9.-]+)(?:@(\d+))?$/.exec(String(ref).trim());
+  if (!m) throw new StoreError(`not a demesne reference: ${ref} (expected id or id@rev)`);
+  const drid = m[2]
+    ? db.prepare('SELECT drid FROM demesne_rev WHERE demesne_id = ? AND rev = ?').pluck().get(m[1], Number(m[2]))
+    : db.prepare('SELECT drid FROM demesne_rev WHERE demesne_id = ? ORDER BY rev DESC LIMIT 1').pluck().get(m[1]);
+  if (drid === undefined) throw new StoreError(`no demesne ${ref}`, 404);
+  return drid;
+}
+
 // Add a revision of a demesne (revision 1 creates it): a milli, implemented on a segment of a coordinate space.
 //   milli:   the milli's revision, e.g. 'town@1' (a micro is refused: it is composed into a milli first)
 //   segment: a GeoJSON Polygon or MultiPolygon in the space's frame
-export function addDemesne(db, { id, name, milli, space, segment, filedBy, source }) {
+//   from, until: the period it is in force, each an instant as written ('1789', '1789-04-30', '-0323' for 323 BC), or
+//                left out for an open end
+//   after:   the demesne this one came after, e.g. 'empire@1'. Succession is never continuity: the successor is another
+//            demesne, whose deme signs afresh; the store only records what followed what.
+export function addDemesne(db, { id, name, milli, space, segment, from = null, until = null, after = null, filedBy, source }) {
   checkSegment(segment);
+  for (const [label, text] of [['from', from], ['until', until]])
+    if (text !== null && text !== undefined && !instant(text))
+      throw new StoreError(`${label} takes a year, month or day as written: 1789, 1789-04, 1789-04-30, or -0323 for 323 BC`);
+  if (from && until && instant(from).start > instant(until).end) throw new StoreError('a demesne cannot be in force until before it is in force from');
+  if (after && String(after).split('@')[0] === id)
+    throw new StoreError('a demesne cannot come after itself: succession is never continuity, so a successor is another demesne');
   if (space === 'earth' && (segment.type === 'Polygon' ? [segment.coordinates] : segment.coordinates).flat(2).some(([x, y]) => Math.abs(x) > 180 || Math.abs(y) > 90))
     throw new StoreError('not a segment of Earth: longitude lies within ±180° and latitude within ±90°');
   return db.transaction(() => {
     db.prepare('INSERT INTO demesne (id) VALUES (?) ON CONFLICT (id) DO NOTHING').run(id);
     const rev = db.prepare('SELECT COALESCE(MAX(rev), 0) + 1 FROM demesne_rev WHERE demesne_id = ?').pluck().get(id);
-    db.prepare('INSERT INTO demesne_rev (demesne_id, rev, name, crid, space_id, segment, filed_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, rev, name, resolveContract(db, milli), space, JSON.stringify(segment), filedBy, source);
+    db.prepare(`INSERT INTO demesne_rev (demesne_id, rev, name, crid, space_id, segment, valid_from, valid_until, after_drid, filed_by, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, rev, name, resolveContract(db, milli), space, JSON.stringify(segment), from ?? null, until ?? null,
+           after ? resolveDemesne(db, after) : null, filedBy, source);
     return { ref: `${id}@${rev}` };
   })();
 }
@@ -344,8 +373,11 @@ export function listDemesnes(db) {
   const spaces = db.prepare('SELECT id, label, frame FROM space ORDER BY label').all();
   const demesnes = db.prepare(`SELECT d.demesne_id AS id, d.rev, d.demesne_id || '@' || d.rev AS ref, d.name, d.space_id AS space,
                                       c.contract_id || '@' || c.rev AS milli, c.title AS milliTitle, d.segment,
+                                      d.valid_from AS "from", d.valid_until AS until,
+                                      CASE WHEN d.after_drid IS NULL THEN NULL ELSE a.demesne_id || '@' || a.rev END AS after,
                                       d.filed_by AS filedBy, d.source
-                               FROM demesne_rev d JOIN contract_rev c ON c.crid = d.crid ORDER BY d.drid`).all()
+                               FROM demesne_rev d JOIN contract_rev c ON c.crid = d.crid
+                               LEFT JOIN demesne_rev a ON a.drid = d.after_drid ORDER BY d.drid`).all()
     .map(d => ({ ...d, segment: JSON.parse(d.segment) }));
   return { spaces, demesnes };
 }

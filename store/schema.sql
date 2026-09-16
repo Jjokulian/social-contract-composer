@@ -586,6 +586,9 @@ CREATE TABLE IF NOT EXISTS demesne_rev (
   crid       INTEGER NOT NULL REFERENCES contract_rev(crid),   -- the milli implemented, pinned to its revision
   space_id   TEXT    NOT NULL REFERENCES space(id),
   segment    TEXT    NOT NULL,                             -- GeoJSON Polygon or MultiPolygon, in the space's frame
+  valid_from  TEXT,                                        -- in force from, as written: 1789, 1789-04-30, -0323 for 323 BC; open if absent
+  valid_until TEXT,                                        -- in force until; open if absent
+  after_drid  INTEGER REFERENCES demesne_rev(drid),         -- the demesne this one came after: succession, never continuity
   filed_by   TEXT    NOT NULL REFERENCES author(id),
   source     TEXT    NOT NULL,
   created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),

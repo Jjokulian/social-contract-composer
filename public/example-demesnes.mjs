@@ -1,6 +1,8 @@
 // Example demesnes for the Globe, shown on Earth while it has none of its own. They are not in the catalogue and their
 // millis don't exist: they only show how demesnes nest. A defensive military demesne is segmented exhaustively into
 // four cultural demesnes; within those lie islands of others, and within one island, another.
+// One quarter is in force until a year and another comes after it, to show a period and a succession: set an instant
+// on the Globe (?when=1880, ?when=1900) to see what was in force then.
 // Placed in the open Atlantic, so no real place is implied.
 
 // An irregular island around a centre, as a closed ring.
@@ -20,9 +22,9 @@ const north = [[-44.4, 32], [-43.5, 33.5], [-44.6, 35], [-44, 36]];
 const south = [[-44, 28], [-44.8, 29.5], [-43.6, 31], [-44.4, 32]];
 const rev = line => [...line].reverse();
 
-const demesne = (id, name, milliId, milliTitle, segment) => ({
+const demesne = (id, name, milliId, milliTitle, segment, period = {}) => ({
   id: `example-${id}`, rev: 1, ref: `example-${id}@1`, name, space: 'earth', segment, example: true,
-  milli: `example-${milliId}@1`, milliTitle, filedBy: 'example', source: 'example',
+  milli: `example-${milliId}@1`, milliTitle, filedBy: 'example', source: 'example', ...period,
 });
 
 export const EXAMPLE = [
@@ -33,7 +35,11 @@ export const EXAMPLE = [
   demesne('south-east', 'South-east country', 'river', 'River culture', polygon([[-44, 28], [-38, 28], ...rev(east), ...rev(south).slice(1, -1)])),
   demesne('quiet-quarter', 'Quiet quarter', 'quiet', 'Quiet atmosphere', island(-47.5, 34.2, 0.9, 0.3)),
   demesne('silent-garden', 'Silent garden', 'silence', 'Silence', island(-47.5, 34.2, 0.3, 1.1)),
-  demesne('craft-quarter', 'Craft guild quarter', 'guild', 'Guild conduct', island(-45.9, 35.1, 0.45, 2.0)),
+  demesne('craft-quarter', 'Craft guild quarter', 'guild', 'Guild conduct', island(-45.9, 35.1, 0.45, 2.0), { until: '1890' }),
+  // The works quarter came after the craft quarter: another demesne, on another segment, under another milli, whose
+  // deme signed afresh. Succession is never continuity, so nothing carries over but the record of what followed what.
+  demesne('works-quarter', 'Works quarter', 'works', 'Works conduct', island(-44.9, 35.3, 0.4, 1.2),
+          { from: '1890', after: 'example-craft-quarter@1' }),
   demesne('harbour-quarter', 'Harbour quarter', 'guild', 'Guild conduct', island(-42.6, 33.8, 0.45, 0.7)),
   demesne('festival-grounds', 'Festival grounds', 'festive', 'Festive atmosphere', island(-40.3, 34.4, 0.8, 1.6)),
   demesne('scholars-quarter', 'Scholars’ quarter', 'quiet', 'Quiet atmosphere', island(-47.2, 30.0, 0.8, 2.4)),
