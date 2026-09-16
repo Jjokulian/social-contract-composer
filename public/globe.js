@@ -7,14 +7,14 @@ import { findSource } from './source.mjs';
 import { layering, layersOf, paint, stackAt, bbox, currentDemesnes, instant } from './space.mjs';
 import { EXAMPLE } from './example-demesnes.mjs';
 import { PATTERNS, swatch, cueOf as cueFor, styleFor, featuresOf, addDemesneLayers } from './map.mjs';
-import { $, esc } from './common.mjs';
+import { $, esc, CASES, casesOf, caseParam, inCase } from './common.mjs';
 
 const fmt = n => Number(n).toFixed(4);
 const token = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-const state = { space: 'earth', by: 'level', hidden: new Set(), at: null, example: null, when: null };
+const state = { space: 'earth', by: 'level', hidden: new Set(), at: null, example: null, when: null, cases: new Set(Object.keys(CASES)) };
 let data, map, marker, layered = [], layers = [], cues = new Map(), outOfForce = 0;
 
 function readUrl() {
@@ -22,6 +22,7 @@ function readUrl() {
   state.space = q.get('space') ?? 'earth';
   state.by = q.get('by') === 'milli' ? 'milli' : 'level';
   state.when = q.get('when') || null;   // an instant: only the demesnes in force then are drawn
+  state.cases = casesOf(location.search, Object.keys(CASES));   // a view of what was: every case, unless asked otherwise
   state.hidden = new Set((q.get('hide') ?? '').split(',').filter(Boolean));
   const at = (q.get('at') ?? '').split(',').map(Number);
   state.at = at.length === 2 && at.every(Number.isFinite) ? at : null;
@@ -32,6 +33,7 @@ function writeUrl() {
   const q = new URLSearchParams({ space: state.space, by: state.by });
   if (state.hidden.size) q.set('hide', [...state.hidden].join(','));
   if (state.when) q.set('when', state.when);
+  if (caseParam(state.cases) !== null) q.set('case', caseParam(state.cases));
   if (state.at) q.set('at', state.at.map(fmt).join(','));
   if (state.example !== null) q.set('example', state.example ? '1' : '0');
   history.replaceState(null, '', `?${q}`);
@@ -43,7 +45,7 @@ const showingExample = () => state.space === 'earth' && (state.example ?? !data.
 const everyDemesne = () => [...data.demesnes, ...(showingExample() ? EXAMPLE : [])];
 
 function compute() {
-  const all = currentDemesnes(everyDemesne()).filter(d => d.space === state.space);
+  const all = currentDemesnes(everyDemesne()).filter(d => d.space === state.space && inCase(d, state.cases));
   layered = layering(all, state.space, { when: state.when });
   outOfForce = all.length - layered.length;
   layers = layersOf(layered, state.by);
@@ -147,6 +149,10 @@ function layersHtml() {
       : `<p class="detail-note">The demesnes in force at ${esc(state.when)}${outOfForce ? `; ${plural(outOfForce, 'demesne')} out of force ${outOfForce === 1 ? 'is' : 'are'} hidden` : ''}.</p>`}
     ${layers.length ? `<ul class="layer-toggles">${rows}</ul>` : '<p class="empty">Layers appear once there are demesnes.</p>'}
     ${shown.length > PATTERNS.length ? `<p class="detail-note">More than ${PATTERNS.length} layers are shown, so their patterns repeat: hide some to tell them apart.</p>` : ''}
+    <fieldset class="layers"><legend>Cases</legend>
+      ${Object.entries(CASES).map(([id, label]) =>
+        `<label><input type="checkbox" data-case="${id}"${state.cases.has(id) ? ' checked' : ''}> ${label}</label>`).join('')}
+    </fieldset>
     ${state.space === 'earth' ? `<label class="example-toggle"><input type="checkbox" id="example"${showingExample() ? ' checked' : ''}> Show the example demesnes</label>` : ''}
   </section>`;
 }
@@ -225,9 +231,11 @@ async function main() {
     else if (t.id === 'by') { state.by = t.value; state.hidden.clear(); }
     else if (t.id === 'example') state.example = t.checked;
     else if (t.id === 'when') { state.when = t.value.trim() || null; state.at = null; }
+    else if (t.dataset.case) { t.checked ? state.cases.add(t.dataset.case) : state.cases.delete(t.dataset.case); state.hidden.clear(); }
     else return;
-    refresh({ refit: t.id === 'example' || t.id === 'when' });
-    $(key ? `[data-layer="${CSS.escape(key)}"]` : `#${t.id}`)?.focus();   // the panel was redrawn; keep keyboard focus
+    refresh({ refit: t.id === 'example' || t.id === 'when' || Boolean(t.dataset.case) });
+    // the panel was redrawn; keep keyboard focus
+    $(key ? `[data-layer="${CSS.escape(key)}"]` : t.dataset.case ? `[data-case="${t.dataset.case}"]` : `#${t.id}`)?.focus();
   });
   $('#details').addEventListener('click', e => {
     if (e.target.closest('#clear')) { state.at = null; refresh(); }

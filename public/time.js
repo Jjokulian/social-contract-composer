@@ -8,10 +8,10 @@
 // below give the same numbers.
 import { findSource } from './source.mjs';
 import { layering, layersOf, paint, currentDemesnes, instant, inForce, dateOf, bbox } from './space.mjs';
-import { extent, samples, eventsOf, ticksOf, yearLabel } from './timeline.mjs';
+import { extent, samples, eventsOf, ticksOf, yearLabel, levelAt } from './timeline.mjs';
 import { EXAMPLE } from './example-demesnes.mjs';
 import { swatch, cueOf as cueFor, styleFor, featuresOf, addDemesneLayers } from './map.mjs';
-import { $, esc } from './common.mjs';
+import { $, esc, CASES, casesOf, caseParam, inCase } from './common.mjs';
 
 const YEAR = 372;                  // instants count in days of twelve 31-day months (public/space.mjs)
 const BANDS = 4;                   // levels deeper than this fold into the last band
@@ -23,8 +23,8 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-const state = { space: 'earth', when: null, example: null };
-let data, map, all = [], span = null, levelOf = new Map(), series = [], events = [];
+const state = { space: 'earth', when: null, example: null, cases: new Set(Object.keys(CASES)) };
+let data, map, all = [], span = null, containers = new Map(), series = [], events = [];
 let layered = [], cues = new Map(), at = 0, hover = null, playing = null, frame = null;
 
 function readUrl() {
@@ -32,6 +32,7 @@ function readUrl() {
   state.space = q.get('space') ?? 'earth';
   state.when = q.get('when') || null;
   state.example = q.has('example') ? q.get('example') === '1' : null;
+  state.cases = casesOf(location.search, Object.keys(CASES));   // a view of what was: every case, unless asked otherwise
 }
 
 // An instant on a first of January is written as its year alone: the year is what a viewer reads and links.
@@ -41,22 +42,23 @@ function writeUrl() {
   const q = new URLSearchParams({ space: state.space });
   if (span) q.set('when', whenText(at));
   if (state.example !== null) q.set('example', state.example ? '1' : '0');
+  if (caseParam(state.cases) !== null) q.set('case', caseParam(state.cases));
   history.replaceState(null, '', `?${q}`);
 }
 
 const showingExample = () => state.space === 'earth' && (state.example ?? !data.demesnes.some(d => d.space === 'earth'));
 const everyDemesne = () => [...data.demesnes, ...(showingExample() ? EXAMPLE : [])];
 const nameOfAny = ref => esc(everyDemesne().find(d => d.ref === ref)?.name ?? ref);
-const bandOf = ref => Math.min((levelOf.get(ref) ?? 1) - 1, BANDS - 1);
 const fold = byLevel => { const out = Array(BANDS).fill(0); byLevel.forEach((n, k) => { out[Math.min(k, BANDS - 1)] += n; }); return out; };
 
-// What a set of demesnes spans, the level each lies at, how many were in force across it, and what happened. The level
-// is taken once from every demesne, so dragging never waits on the geometry.
+// What a set of demesnes spans, which of them contain which, how many were in force across it, and what happened.
+// Containment follows from the segments and is worked out once, so dragging never waits on the geometry; the level a
+// demesne lies at is counted at each instant, from the containers in force then.
 function prepare() {
-  all = currentDemesnes(everyDemesne()).filter(d => d.space === state.space);
-  levelOf = new Map(layering(all, state.space).map(d => [d.ref, d.level]));
+  all = currentDemesnes(everyDemesne()).filter(d => d.space === state.space && inCase(d, state.cases));
+  containers = new Map(layering(all, state.space).map(d => [d.ref, new Set(d.within)]));
   span = extent(all);
-  series = span ? samples(all, span, levelOf, STEPS) : [];
+  series = span ? samples(all, span, containers, STEPS) : [];
   events = eventsOf(all);
   const asked = state.when && instant(state.when)?.start;
   at = asked ?? events.at(-1)?.at ?? span?.end ?? 0;
@@ -76,15 +78,14 @@ function atInstant() {
 // the span; every number a viewer reads is counted at the instant itself, so the readout, the legend, the tooltip and
 // the list below never disagree.
 function countsAt(n) {
+  const now = all.filter(d => inForce(d, { start: n, end: n }));
+  const inForceNow = new Set(now.map(d => d.ref));
   const byLevel = [];
-  let total = 0;
-  for (const d of all) {
-    if (!inForce(d, { start: n, end: n })) continue;
-    const k = (levelOf.get(d.ref) ?? 1) - 1;
+  for (const d of now) {
+    const k = levelAt(d.ref, containers, inForceNow) - 1;
     byLevel[k] = (byLevel[k] ?? 0) + 1;
-    total++;
   }
-  return { byLevel: Array.from(byLevel, v => v ?? 0), total };
+  return { byLevel: Array.from(byLevel, v => v ?? 0), total: now.length };
 }
 
 const xOf = (n, plot) => plot.x + ((n - span.start) / (span.end - span.start)) * plot.w;
@@ -229,7 +230,7 @@ function renderPanel() {
       <span class="stack-note">${[d.from ? `from ${esc(d.from)}` : '', d.until ? `until ${esc(d.until)}` : '',
                                   d.after ? `after ${nameOfAny(d.after)}` : ''].filter(Boolean).join(' · ') || 'no period recorded'}</span>
     </li>`).join('');
-  const table = all.map(d => `<tr><td>${esc(d.name)}</td><td>${esc(d.milliTitle)}</td><td class="n">${levelOf.get(d.ref) ?? ''}</td>
+  const table = all.map(d => `<tr><td>${esc(d.name)}</td><td>${esc(d.milliTitle)}</td>
     <td class="n">${esc(d.from ?? '')}</td><td class="n">${esc(d.until ?? '')}</td><td>${d.after ? nameOfAny(d.after) : ''}</td></tr>`).join('');
 
   $('#details').innerHTML = `
@@ -246,10 +247,14 @@ function renderPanel() {
       <h2>Every demesne</h2>
       <details class="table-view"><summary>The periods as a table</summary>
         <table class="data-table">
-          <thead><tr><th>Demesne</th><th>Milli</th><th>Level</th><th>From</th><th>Until</th><th>After</th></tr></thead>
+          <thead><tr><th>Demesne</th><th>Milli</th><th>From</th><th>Until</th><th>After</th></tr></thead>
           <tbody>${table}</tbody>
         </table>
       </details>
+      <fieldset class="layers"><legend>Cases</legend>
+        ${Object.entries(CASES).map(([id, label]) =>
+          `<label><input type="checkbox" data-case="${id}"${state.cases.has(id) ? ' checked' : ''}> ${label}</label>`).join('')}
+      </fieldset>
       ${state.space === 'earth' ? `<label class="example-toggle"><input type="checkbox" id="example"${showingExample() ? ' checked' : ''}> Show the example demesnes</label>` : ''}
     </section>`;
 }
@@ -357,10 +362,14 @@ async function main() {
   $('#scrub').addEventListener('input', e => { stopPlaying(); moveTo(Number(e.target.value)); });
   $('#play').addEventListener('click', play);
   $('#details').addEventListener('change', e => {
-    if (e.target.id !== 'example') return;
-    state.example = e.target.checked;
+    const t = e.target;
+    if (t.id === 'example') state.example = t.checked;
+    else if (t.dataset.case) t.checked ? state.cases.add(t.dataset.case) : state.cases.delete(t.dataset.case);
+    else return;
+    state.when = null;   // another case may span another time; start from what it records
     prepare();
     refresh({ refit: true });
+    $(t.dataset.case ? `[data-case="${t.dataset.case}"]` : `#${t.id}`)?.focus();   // the panel was redrawn; keep keyboard focus
   });
 
   // The strip is dragged like a scrubber, and hovered like a chart.

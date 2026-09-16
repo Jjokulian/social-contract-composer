@@ -23,7 +23,7 @@ const south = [[-44, 28], [-44.8, 29.5], [-43.6, 31], [-44.4, 32]];
 const rev = line => [...line].reverse();
 
 const demesne = (id, name, milliId, milliTitle, segment, period = {}) => ({
-  id: `example-${id}`, rev: 1, ref: `example-${id}@1`, name, space: 'earth', segment, example: true,
+  id: `example-${id}`, rev: 1, ref: `example-${id}@1`, name, space: 'earth', segment, example: true, case: 'fictive',
   milli: `example-${milliId}@1`, milliTitle, filedBy: 'example', source: 'example', ...period,
 });
 

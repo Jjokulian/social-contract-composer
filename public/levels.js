@@ -3,7 +3,7 @@
 // not cut. State lives in the URL (?store=…&scope=…&levels=…&relations=…&revisions=apart), so a view can be linked.
 import { findSource, storeOf, STORES } from './source.mjs';
 import { buildGraph, filterGraph, LEVELS, RELATIONS } from './levels.mjs';
-import { $, esc, palette, latestById } from './common.mjs';
+import { $, esc, palette, latestById, casesOf, inCase } from './common.mjs';
 
 
 const store = storeOf(location.search);
@@ -196,7 +196,8 @@ async function main() {
   storeSelect.addEventListener('change', () => { location.search = storeSelect.value === 'catalogue' ? '' : `?store=${storeSelect.value}`; });
 
   const latest = latestById(Object.values(cat.contracts));
-  const contracts = [...latest.values()].filter(c => c.status !== 'retired');
+  // Scoping to a contract offers the proposed ones, unless the address asks for the historical or fictive too.
+  const contracts = [...latest.values()].filter(c => c.status !== 'retired' && inCase(c, casesOf(location.search)));
   if (state.scope !== 'all' && !latest.has(state.scope)) state.scope = 'all';
   const scope = $('#scope');
   scope.innerHTML = `<option value="all">The whole store</option>${contracts.map(c => `<option value="${esc(c.id)}">${esc(c.title)} (${c.scale === 'social' ? 'milli' : 'micro'})</option>`).join('')}`;

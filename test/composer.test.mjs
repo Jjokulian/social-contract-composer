@@ -483,6 +483,27 @@ test('a demesne is in force over a period, and a successor comes after another: 
   assert.throws(() => addDemesne(db, { ...spot, id: 'orphan', after: 'nowhere' }), /no demesne/);
 });
 
+test('a contract says what it is: one to compose with, a record of what was, or an example', () => {
+  const { db } = buildFixture();
+  const by = { filedBy: 'planners', source: 'test' };
+  const now = addContract(db, { ...by, id: 'now', scale: 'micro', title: 'Now' }).ref;
+  assert.equal(catalogue(db).contracts[now].case, 'proposed', 'what a contract is unless it says otherwise');
+  const then = addContract(db, { ...by, id: 'then', scale: 'social', title: 'Then', case: 'historical', source: 'Diodorus 18.3' }).ref;
+  assert.equal(catalogue(db).contracts[then].case, 'historical');
+  assert.equal(listContracts(db).find(c => c.id === 'then').case, 'historical', 'and the listing says so');
+
+  const renamed = reviseContract(db, 'then', { ...by, title: 'Then, renamed' }).ref;
+  assert.equal(catalogue(db).contracts[renamed].case, 'historical', 'a revision keeps what the contract is');
+  const made_up = reviseContract(db, 'then', { ...by, case: 'fictive' }).ref;
+  assert.equal(catalogue(db).contracts[made_up].case, 'fictive', 'unless it is given another');
+  assert.throws(() => addContract(db, { ...by, id: 'odd', scale: 'micro', title: 'Odd', case: 'invented' }), /CHECK/);
+
+  // A demesne pins one revision of its milli, so it carries what that revision is.
+  const empire = addDemesne(db, { ...by, id: 'empire-of-then', name: 'The empire', milli: then, space: 'earth',
+    segment: square(0, 0, 3, 3), from: '-0336', until: '-0323' }).ref;
+  assert.equal(catalogue(db).demesnes.find(d => d.ref === empire).case, 'historical', 'the revision it pins, not the latest');
+});
+
 test('the example demesnes nest as described: a shield segmented exhaustively, with islands within', () => {
   const all = layering(EXAMPLE, 'earth');
   const of = id => all.find(d => d.id === `example-${id}`);

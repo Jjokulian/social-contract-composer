@@ -3,7 +3,7 @@
 // browser; "Submit as a doubt" opens a pre-filled GitHub issue, which is digested into a proposal everyone can see.
 import { compose } from './compose.mjs';
 import { evaluate } from './evaluate.mjs';
-import { $, esc, short, nanoId, latestById } from './common.mjs';
+import { $, esc, short, nanoId, latestById, casesOf, inCase } from './common.mjs';
 import { findSource, storeOf, STORES } from './source.mjs';
 
 const REPO = 'https://github.com/Jjokulian/social-contract-composer';
@@ -20,7 +20,10 @@ let cat, draft;
 const loadCatalogue = async () => (await findSource(STORE)).catalogue();
 
 const latest = list => [...latestById(list).values()];
-const latestContracts = () => latest(Object.values(cat.contracts)).filter(c => c.status !== 'retired');
+// Only what this composition may be built from: the proposed contracts, unless the address asks for the historical or
+// the fictive too (?case=historical), so a record of what was never drifts into a milli meant to be signed.
+const SHOWN = casesOf(location.search);
+const latestContracts = () => latest(Object.values(cat.contracts)).filter(c => c.status !== 'retired' && inCase(c, SHOWN));
 const latestNanos = kind => latest(Object.values(cat.nanos).filter(n => n.kind === kind));
 const everything = () => ({ ...cat.nanos, ...draft.nanos });
 const nano = ref => everything()[ref] ?? { ref };

@@ -3,6 +3,7 @@
 // the tests; the drawing is in public/time.js.
 import { instant, inForce, currentDemesnes } from './space.mjs';
 
+
 const YEAR = 372;   // instants count in days of twelve 31-day months, so a year is 372 of them (public/space.mjs)
 
 // The span the recorded periods cover, with room before the first and after the last. Null where none is recorded.
@@ -19,22 +20,26 @@ export function extent(demesnes) {
   return { start: start - pad, end: end + pad };
 }
 
-// How many demesnes were in force at each of `steps` instants across the span, counted at the nesting level each lies
-// at (levelOf: ref → level, worked out once from every demesne, so a count never waits on the geometry).
-export function samples(demesnes, { start, end }, levelOf, steps = 180) {
+// The level a demesne lay at, at one instant: one, and one more for every demesne in force then that contains it.
+// Which demesnes contain which follows from the segments and is worked out once (public/space.mjs); which of them were
+// in force changes with the instant, so the nesting counted here is the nesting as it was then, not as it ever was.
+export const levelAt = (ref, containers, inForceNow) =>
+  1 + [...(containers.get(ref) ?? [])].filter(other => inForceNow.has(other)).length;
+
+// How many demesnes were in force at each of `steps` instants across the span, counted at the level each lay at then.
+export function samples(demesnes, { start, end }, containers, steps = 180) {
   const here = currentDemesnes(demesnes);
   const out = [];
   for (let i = 0; i < steps; i++) {
     const at = Math.round(start + (end - start) * (steps === 1 ? 0 : i / (steps - 1)));
+    const now = here.filter(d => inForce(d, { start: at, end: at }));
+    const inForceNow = new Set(now.map(d => d.ref));
     const byLevel = [];
-    let total = 0;
-    for (const d of here) {
-      if (!inForce(d, { start: at, end: at })) continue;
-      const k = (levelOf.get(d.ref) ?? 1) - 1;
+    for (const d of now) {
+      const k = levelAt(d.ref, containers, inForceNow) - 1;
       byLevel[k] = (byLevel[k] ?? 0) + 1;
-      total++;
     }
-    out.push({ at, byLevel: Array.from(byLevel, n => n ?? 0), total });
+    out.push({ at, byLevel: Array.from(byLevel, n => n ?? 0), total: now.length });
   }
   return out;
 }

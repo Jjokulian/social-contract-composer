@@ -3,7 +3,7 @@
 import { evaluate } from './evaluate.mjs';
 import { findSource, storeOf, STORES } from './source.mjs';
 import { coverageReason } from './explain.mjs';
-import { $, esc, short, palette, latestById } from './common.mjs';
+import { $, esc, short, palette, latestById, casesOf, inCase } from './common.mjs';
 
 
 try { cytoscape.use(window.cytoscapeDagre); } catch { /* already registered by its own script */ }
@@ -210,9 +210,11 @@ async function boot() {
   storeSelect.value = store;
   storeSelect.addEventListener('change', () => { location.search = storeSelect.value === 'catalogue' ? '' : `?store=${storeSelect.value}`; });
   if (store === 'system') $('#layer-picos').checked = true;   // the platform's store is mostly words: show them
-  const contracts = await source.contracts();
+  // The proposed contracts, unless the address asks for the historical or the fictive too (?case=all).
+  const cases = casesOf(location.search);
+  const contracts = (await source.contracts()).filter(c => inCase(c, cases));
   const wanted = new URLSearchParams(location.search).get('contract');
-  const id = contracts.some(c => c.id === wanted) ? wanted : (contracts.find(c => c.status !== 'proposed') ?? contracts[0]).id;
+  const id = contracts.some(c => c.id === wanted) ? wanted : (contracts.find(c => c.status !== 'proposed') ?? contracts[0])?.id;
   const select = $('#contract');
   select.innerHTML = contracts.map(c => `<option value="${esc(c.id)}">${esc(c.title)} (${c.scale === 'social' ? 'milli' : 'micro'} · ${esc(c.status)})</option>`).join('');
   select.value = id;

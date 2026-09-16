@@ -49,6 +49,10 @@ function migrate(db) {
   if (!columns.includes('binding')) db.exec("ALTER TABLE clause_body ADD COLUMN binding TEXT CHECK (binding IN ('work', 'abide', 'liberty'))");
   if (!db.prepare('PRAGMA table_info(contract_include)').all().some(c => c.name === 'base'))
     db.exec('ALTER TABLE contract_include ADD COLUMN base INTEGER NOT NULL DEFAULT 0 CHECK (base IN (0, 1))');
+  // A contract says what it is, beside where it stands: proposed, historical or fictive.
+  if (!db.prepare('PRAGMA table_info(contract_rev)').all().some(c => c.name === 'case'))
+    db.exec(`ALTER TABLE contract_rev ADD COLUMN "case" TEXT NOT NULL DEFAULT 'proposed'
+               CHECK ("case" IN ('proposed', 'historical', 'fictive'))`);
   // A demesne is in force over a period, and may come after another: columns added where a store predates them.
   if (!db.prepare('PRAGMA table_info(demesne_rev)').all().some(c => c.name === 'valid_from')) {
     db.exec('ALTER TABLE demesne_rev ADD COLUMN valid_from TEXT');
@@ -209,7 +213,7 @@ export function addNano(db, { id, kind, filedBy, source, picos = [], implemented
 //   members:    [ref]                                                     — clauses, definitions, measures, assumptions, endorsed claims
 //   parameters: { ref: value }
 //   includes:   [{ contract: ref, mode: 'nest'|'add', under?: intent ref }]
-export function addContract(db, { id, scale, title, status = 'draft', filedBy, source,
+export function addContract(db, { id, scale, title, status = 'draft', case: contractCase = 'proposed', filedBy, source,
                                   intents = [], members = [], parameters = {}, includes = [], breaches = [], enforcement = [],
                                   socioship = [], operations = [], resolution = [], specialis = [] }) {
   return db.transaction(() => {
@@ -217,8 +221,9 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
     if (existing && existing !== scale) throw new StoreError(`${id} is already a ${existing} contract`);
     if (!existing) db.prepare('INSERT INTO contract (id, scale) VALUES (?, ?)').run(id, scale);
     const rev = db.prepare('SELECT COALESCE(MAX(rev), 0) + 1 FROM contract_rev WHERE contract_id = ?').pluck().get(id);
-    const crid = Number(db.prepare('INSERT INTO contract_rev (contract_id, rev, title, status, filed_by, source) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(id, rev, title, status, filedBy, source).lastInsertRowid);
+    const crid = Number(db.prepare(`INSERT INTO contract_rev (contract_id, rev, title, status, "case", filed_by, source)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, rev, title, status, contractCase, filedBy, source).lastInsertRowid);
 
     const intentRid = new Map();
     intents.forEach((it, position) => {
@@ -269,9 +274,9 @@ export function addContract(db, { id, scale, title, status = 'draft', filedBy, s
 //   dropEdges:  [{ child, parent }]                                     — refinements to remove, by current references
 export function reviseContract(db, id, { replace = {}, add = [], drop = [], addIntents = [], dropEdges = [], addBreaches = [], addEnforcement = [],
                                          addSocioship = [], addOperations = [], resolution: newResolution, addSpecialis = [],
-                                         filedBy, source, title, status } = {}) {
+                                         filedBy, source, title, status, case: newCase } = {}) {
   const crid = resolveContract(db, id);
-  const current = db.prepare(`SELECT c.contract_id AS id, c.title, c.status, k.scale FROM contract_rev c
+  const current = db.prepare(`SELECT c.contract_id AS id, c.title, c.status, c."case" AS "case", k.scale FROM contract_rev c
                                JOIN contract k ON k.id = c.contract_id WHERE c.crid = ?`).get(crid);
   const swap = ref => replace[ref] ?? ref;
   const parents = new Map();
@@ -298,7 +303,8 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
   const breaches = db.prepare('SELECT clause_rid, consequence_rid FROM contract_breach WHERE crid = ?').all(crid)
     .map(b => ({ clause: swap(refOf(db, b.clause_rid)), consequence: swap(refOf(db, b.consequence_rid)) }));
   return addContract(db, {
-    id: current.id, scale: current.scale, title: title ?? current.title, status: status ?? current.status, filedBy, source,
+    id: current.id, scale: current.scale, title: title ?? current.title, status: status ?? current.status,
+    case: newCase ?? current.case, filedBy, source,
     intents: mergeIntents(intents, addIntents), members: [...members, ...add], parameters, includes,
     breaches: [...breaches, ...addBreaches],
     enforcement: [
@@ -372,7 +378,7 @@ export function addDemesne(db, { id, name, milli, space, segment, from = null, u
 export function listDemesnes(db) {
   const spaces = db.prepare('SELECT id, label, frame FROM space ORDER BY label').all();
   const demesnes = db.prepare(`SELECT d.demesne_id AS id, d.rev, d.demesne_id || '@' || d.rev AS ref, d.name, d.space_id AS space,
-                                      c.contract_id || '@' || c.rev AS milli, c.title AS milliTitle, d.segment,
+                                      c.contract_id || '@' || c.rev AS milli, c.title AS milliTitle, c."case" AS "case", d.segment,
                                       d.valid_from AS "from", d.valid_until AS until,
                                       CASE WHEN d.after_drid IS NULL THEN NULL ELSE a.demesne_id || '@' || a.rev END AS after,
                                       d.filed_by AS filedBy, d.source
@@ -462,7 +468,8 @@ export function catalogue(db) {
   const nanos = Object.fromEntries(db.prepare('SELECT rid FROM revision ORDER BY rid').pluck().all()
     .map(rid => { const n = describe(db, rid); return [n.ref, n]; }));
   const contracts = {};
-  for (const c of db.prepare(`SELECT c.crid, c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c.source
+  for (const c of db.prepare(`SELECT c.crid, c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status,
+                                     c."case" AS "case", c.source
                               FROM contract_rev c JOIN contract k ON k.id = c.contract_id ORDER BY c.crid`).all()) {
     c.intents = db.prepare('SELECT intent_rid, combine FROM contract_intent WHERE crid = ? ORDER BY position').all(c.crid)
       .map(i => ({ ref: refOf(db, i.intent_rid), combine: i.combine }));
@@ -503,7 +510,7 @@ export function catalogue(db) {
 }
 
 export function listContracts(db) {
-  return db.prepare(`SELECT c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c.source
+  return db.prepare(`SELECT c.contract_id AS id, c.rev, c.contract_id || '@' || c.rev AS ref, k.scale, c.title, c.status, c."case" AS "case", c.source
                      FROM contract_rev c JOIN contract k ON k.id = c.contract_id
                      WHERE c.rev = (SELECT MAX(rev) FROM contract_rev x WHERE x.contract_id = c.contract_id)
                        AND c.status <> 'retired'   -- a retired contract stays in the catalogue and its history, but leaves the list

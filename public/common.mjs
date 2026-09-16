@@ -16,6 +16,29 @@ export const latestById = list => { const by = new Map(); for (const x of list) 
 // The first element matching a selector, in the page or within root.
 export const $ = (selector, root = document) => root.querySelector(selector);
 
+// What a contract is, beside where it stands: one to compose with now, a record of what was, or an example that shows
+// the structure and was never signed. A view shows the proposed ones unless its address asks for more, so historical
+// and fictive material never drifts into a composition unless it is asked for.
+export const CASES = { proposed: 'Proposed', historical: 'Historical', fictive: 'Fictive' };
+
+// The views that compose show the proposed contracts unless asked for more; the views that look at what was — the Globe
+// and the Timeline — show every case, which is what they are for.
+export function casesOf(search, fallback = ['proposed']) {
+  const asked = (new URLSearchParams(search).get('case') ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  if (asked.includes('all')) return new Set(Object.keys(CASES));
+  const known = asked.filter(c => c in CASES);
+  return new Set(known.length ? known : fallback);
+}
+
+// Whether a contract or a demesne is one of the cases shown; anything that doesn't say is proposed.
+export const inCase = (x, cases) => cases.has(x?.case ?? 'proposed');
+
+// The cases as an address asks for them, or nothing where only the proposed ones are shown, which is the default.
+export const caseParam = cases => {
+  const list = [...cases].sort();
+  return list.length === 1 && list[0] === 'proposed' ? null : list.join(',');
+};
+
 // The page's colours, read from its theme's tokens, for what draws on a canvas.
 export function palette() {
   const s = getComputedStyle(document.documentElement), v = name => s.getPropertyValue(name).trim();

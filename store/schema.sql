@@ -269,6 +269,9 @@ CREATE TABLE IF NOT EXISTS contract_rev (
   rev         INTEGER NOT NULL CHECK (rev >= 1),
   title       TEXT    NOT NULL,
   status      TEXT    NOT NULL CHECK (status IN ('draft', 'proposed', 'adopted', 'retired')),
+  -- What a contract is, beside where it stands: one to compose with now, a record of what was (pinned to a period and
+  -- to its sources), or an example that shows the structure and was never signed by anyone.
+  "case"      TEXT    NOT NULL DEFAULT 'proposed' CHECK ("case" IN ('proposed', 'historical', 'fictive')),
   filed_by    TEXT    NOT NULL REFERENCES author(id),
   source      TEXT    NOT NULL,
   created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),

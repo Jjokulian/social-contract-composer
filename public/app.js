@@ -4,7 +4,7 @@ import { evaluate } from './evaluate.mjs';
 import { picoMatcher } from './picos.mjs';
 import { findSource, storeOf, STORES } from './source.mjs';
 import { coverageReason } from './explain.mjs';
-import { $, esc, short, latestById } from './common.mjs';
+import { $, esc, short, latestById, casesOf, inCase } from './common.mjs';
 
 const OPS = { '<': '<', '<=': '≤', '>': '>', '>=': '≥', '=': '=' };
 const STATUS = {
@@ -541,13 +541,19 @@ async function boot() {
   const [contracts, societies] = await Promise.all([source.contracts(), source.societies()]).catch(err => { fail(err.message); return []; });
   if (!contracts) return;
   if (!contracts.length) return fail('The store has no contracts yet.');
-  if (!contracts.some(c => c.id === state.contract)) state.contract = (contracts.find(c => c.status !== 'proposed') ?? contracts[0]).id;
+  // The contracts to compose with: a record of what was, or an example, is read only when the address asks for it.
+  const cases = casesOf(location.search);
+  const shown = contracts.filter(c => inCase(c, cases));
+  if (!shown.length) return fail('No contract of these cases is in the store. Add ?case=all to the address to see every one.');
+  if (!shown.some(c => c.id === state.contract)) state.contract = (shown.find(c => c.status !== 'proposed') ?? shown[0]).id;
 
   const contractSelect = $('#contract');
   const option = c => `<option value="${esc(c.id)}">${esc(c.title)} (${c.scale === 'social' ? 'milli' : 'micro'} · ${esc(c.status)})</option>`;
   const group = (label, list) => list.length ? `<optgroup label="${label}">${list.map(option).join('')}</optgroup>` : '';
-  contractSelect.innerHTML = group('Contracts', contracts.filter(c => c.status !== 'proposed'))
-    + group('Proposals', contracts.filter(c => c.status === 'proposed'));
+  contractSelect.innerHTML = group('Contracts', shown.filter(c => c.status !== 'proposed' && (c.case ?? 'proposed') === 'proposed'))
+    + group('Proposals', shown.filter(c => c.status === 'proposed' && (c.case ?? 'proposed') === 'proposed'))
+    + group('Historical', shown.filter(c => c.case === 'historical'))
+    + group('Fictive', shown.filter(c => c.case === 'fictive'));
   contractSelect.value = state.contract;
   contractSelect.addEventListener('change', () => { state.contract = contractSelect.value; state.parameters = {}; load(); });
 
