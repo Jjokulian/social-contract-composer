@@ -24,7 +24,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // ─── State ───────────────────────────────────────────────────────────────────
 
 const state = { space: 'earth', when: null, example: null, cases: new Set(Object.keys(CASES)) };
-let data, map, all = [], span = null, containers = new Map(), series = [], events = [];
+let data, map, all = [], span = null, whole = [], containers = new Map(), meets = new Map(), series = [], events = [];
 let layered = [], cues = new Map(), at = 0, hover = null, playing = null, frame = null;
 
 function readUrl() {
@@ -56,7 +56,9 @@ const fold = byLevel => { const out = Array(BANDS).fill(0); byLevel.forEach((n, 
 // demesne lies at is counted at each instant, from the containers in force then.
 function prepare() {
   all = currentDemesnes(everyDemesne()).filter(d => d.space === state.space && inCase(d, state.cases));
-  containers = new Map(layering(all, state.space).map(d => [d.ref, new Set(d.within)]));
+  whole = layering(all, state.space);   // the segments are read once: what contains what, and what meets what
+  containers = new Map(whole.map(d => [d.ref, new Set(d.within)]));
+  meets = new Map(whole.map(d => [d.ref, new Set(d.meets)]));
   span = extent(all);
   series = span ? samples(all, span, containers, STEPS) : [];
   events = eventsOf(all);
@@ -65,9 +67,18 @@ function prepare() {
   if (span) at = Math.min(Math.max(at, span.start), span.end);
 }
 
-// The nesting as it was at the instant, and the cues to draw it with.
+// The nesting as it was at the instant, worked out from what contains what and what meets what: a demesne lies within
+// the containers in force then, and neighbours only what is in force beside it. No segment is read here, so dragging
+// costs the same whether a segment is a rectangle or a coastline.
 function atInstant() {
-  layered = layering(all, state.space, { when: { start: at, end: at } });
+  const inForceNow = new Set(all.filter(d => inForce(d, { start: at, end: at })).map(d => d.ref));
+  const level = ref => levelAt(ref, containers, inForceNow);
+  layered = whole.filter(d => inForceNow.has(d.ref)).map(d => {
+    const { children, segmentation, overlaps, touches, shares, ...rest } = d;   // all of them were of the whole span
+    const within = [...containers.get(d.ref)].filter(ref => inForceNow.has(ref)).sort((a, b) => level(a) - level(b));
+    return { ...rest, within, depth: within.length, level: within.length + 1, parent: within.at(-1) ?? null,
+             meets: [...meets.get(d.ref)].filter(ref => inForceNow.has(ref)) };
+  }).sort((a, b) => a.depth - b.depth || a.name.localeCompare(b.name));
   const layers = layersOf(layered, 'level');
   cues = paint(layered, layers, new Set(layers.map(l => l.key)));
 }
