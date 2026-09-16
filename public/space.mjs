@@ -123,6 +123,13 @@ export function instant(text) {
   return { text: String(text).trim(), start: at(month ?? 1, day ?? 1), end: at(month ?? 12, day ?? 31) };
 }
 
+// The day an instant's number falls on, written out: the inverse of instant(), for a viewer dragging along a timeline.
+export function dateOf(n) {
+  const year = Math.floor(n / 372), rest = n - year * 372;
+  const pad = (x, width) => String(Math.abs(x)).padStart(width, '0');
+  return `${year < 0 ? '-' : ''}${pad(year, 4)}-${pad(Math.floor(rest / 31) + 1, 2)}-${pad((rest % 31) + 1, 2)}`;
+}
+
 // Whether a demesne is in force at an instant. With no instant given, or one that can't be read, every demesne counts.
 export function inForce(d, when) {
   const w = when && (typeof when === 'string' ? instant(when) : when);

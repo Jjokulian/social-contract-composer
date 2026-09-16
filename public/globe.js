@@ -6,44 +6,11 @@
 import { findSource } from './source.mjs';
 import { layering, layersOf, paint, stackAt, bbox, currentDemesnes, instant } from './space.mjs';
 import { EXAMPLE } from './example-demesnes.mjs';
+import { PATTERNS, swatch, cueOf as cueFor, styleFor, featuresOf, addDemesneLayers } from './map.mjs';
 import { $, esc } from './common.mjs';
 
 const fmt = n => Number(n).toFixed(4);
 const token = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-
-// Colours tell neighbouring demesnes within a layer apart; patterns tell the layers apart: a tint for the first layer
-// shown, then hatchings. The four colours pass colour-vision separation for every pair against a light ground, and the
-// map's ground (the base map) stays light in either theme. Each demesne is also named in the panel and outlined.
-const COLOURS = ['#2a78d6', '#eb6834', '#1baf7a', '#4a3aa7'];
-const PATTERNS = ['tint', 'hatch', 'counter-hatch', 'lines', 'dots'];
-const SIZE = 12;
-const INKED = {
-  'tint': () => true,
-  'hatch': (x, y) => (x + y) % 6 < 2,
-  'counter-hatch': (x, y) => (x - y + SIZE) % 6 < 2,
-  'lines': (x, y) => y % 6 < 2,
-  'dots': (x, y) => x % 6 < 3 && y % 6 < 3,
-};
-
-function pattern(kind, hex) {
-  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
-  const data = new Uint8Array(SIZE * SIZE * 4);
-  for (let y = 0; y < SIZE; y++)
-    for (let x = 0; x < SIZE; x++) data.set([r, g, b, INKED[kind](x, y) ? (kind === 'tint' ? 72 : 225) : 0], (y * SIZE + x) * 4);
-  return { width: SIZE, height: SIZE, data };
-}
-
-const swatchUrls = new Map();
-function swatchUrl(kind, hex) {
-  const key = kind + hex;
-  if (!swatchUrls.has(key)) {
-    const canvas = Object.assign(document.createElement('canvas'), { width: SIZE, height: SIZE });
-    canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(pattern(kind, hex).data), SIZE, SIZE), 0, 0);
-    swatchUrls.set(key, canvas.toDataURL());
-  }
-  return swatchUrls.get(key);
-}
-const swatch = cue => `<span class="swatch" aria-hidden="true"${cue ? ` style="background-image:url(${swatchUrl(cue.kind, cue.hex)})"` : ''}></span>`;
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -83,50 +50,14 @@ function compute() {
   cues = paint(layered, layers, new Set(layers.map(l => l.key).filter(key => !state.hidden.has(key))));
 }
 
-const cueOf = ref => {
-  const c = cues.get(ref);
-  // Map colouring can need a fifth colour; rather than wrap onto a neighbour's, a fifth or later one is drawn dashed.
-  return c && { kind: PATTERNS[c.pattern % PATTERNS.length], hex: COLOURS[c.colour % COLOURS.length], dashed: c.colour >= COLOURS.length };
-};
+const cueOf = ref => cueFor(cues, ref);
 
 // ─── The globe ───────────────────────────────────────────────────────────────
 
-const OSM = {
-  type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-};
-// Earth has a base map; any other body is drawn as a bare globe in its own frame.
-const styleFor = space => ({
-  version: 8,
-  sources: space === 'earth' ? { osm: OSM } : {},
-  layers: [
-    { id: 'ground', type: 'background', paint: { 'background-color': '#d9ddd4' } },
-    ...(space === 'earth' ? [{ id: 'osm', type: 'raster', source: 'osm' }] : []),
-  ],
-});
-
-function features() {
-  return {
-    type: 'FeatureCollection',
-    features: layered.filter(d => cues.has(d.ref)).map(d => {
-      const cue = cueOf(d.ref), image = `${cue.kind}-${cue.hex.slice(1)}`;
-      if (!map.hasImage(image)) map.addImage(image, pattern(cue.kind, cue.hex));
-      return { type: 'Feature', geometry: d.segment, properties: { ref: d.ref, depth: d.depth, image, line: cue.hex, dashed: cue.dashed } };
-    }),
-  };
-}
+const features = () => featuresOf(map, layered, cues);
 
 // On every style load: the first, and after a change of coordinate space.
-function addDemesnes() {
-  map.setProjection({ type: 'globe' });
-  map.addSource('demesnes', { type: 'geojson', data: features() });
-  map.addLayer({ id: 'demesne-fill', type: 'fill', source: 'demesnes', layout: { 'fill-sort-key': ['get', 'depth'] },
-                 paint: { 'fill-pattern': ['get', 'image'] } });
-  map.addLayer({ id: 'demesne-line', type: 'line', source: 'demesnes', filter: ['!', ['get', 'dashed']], layout: { 'line-sort-key': ['get', 'depth'] },
-                 paint: { 'line-color': ['get', 'line'], 'line-width': 1.5 } });
-  map.addLayer({ id: 'demesne-line-dashed', type: 'line', source: 'demesnes', filter: ['get', 'dashed'], layout: { 'line-sort-key': ['get', 'depth'] },
-                 paint: { 'line-color': ['get', 'line'], 'line-width': 2.5, 'line-dasharray': [2, 1.5] } });
-}
+const addDemesnes = () => addDemesneLayers(map, features());
 
 function placeMarker() {
   marker?.remove();

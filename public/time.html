@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Globe of Demesnes</title>
+  <title>Timeline of Demesnes</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
@@ -18,8 +18,8 @@
       <a class="bar-link" href="graph.html">Graph</a>
       <a class="bar-link" href="levels.html">Levels</a>
       <a class="bar-link" href="compose.html">Compose</a>
-      <span class="bar-link current" aria-current="page">Globe</span>
-      <a class="bar-link" href="time.html">Timeline</a>
+      <a class="bar-link" href="globe.html">Globe</a>
+      <span class="bar-link current" aria-current="page">Timeline</span>
       <a class="bar-link" href="guide.html">How to read</a>
       <label class="field">Coordinate space
         <select id="space"></select>
@@ -28,14 +28,29 @@
   </header>
 
   <main class="graph-layout">
-    <section class="graph-main" aria-label="Globe of the coordinate space">
-      <div id="map" class="graph-canvas globe-canvas" role="application" aria-label="Globe with the demesnes in the layers shown. Click a place to list every demesne stacked there; the same lists are in the panel."></div>
-      <p class="graph-legend">Each shown layer has its own ground pattern; within a layer, neighbouring demesnes differ in colour. Hide the layers above to free their patterns for the layers below.</p>
+    <section class="graph-main" aria-label="The demesnes of the coordinate space over time">
+      <div id="map" class="graph-canvas globe-canvas globe-canvas-short" role="application" aria-label="Globe showing the demesnes in force at the instant on the timeline"></div>
+
+      <section class="timeline" aria-label="Timeline">
+        <div class="timeline-head">
+          <p class="timeline-when"><span id="year">·</span></p>
+          <ul class="timeline-tally" id="tally"></ul>
+          <button type="button" class="btn timeline-play" id="play" aria-pressed="false">Play</button>
+        </div>
+        <div class="timeline-plot">
+          <canvas id="chart" aria-hidden="true"></canvas>
+          <p id="chart-words" class="visually-hidden" aria-live="polite"></p>
+          <div id="tip" class="timeline-tip" hidden></div>
+        </div>
+        <input type="range" id="scrub" step="1" aria-label="Instant on the timeline">
+        <ul class="timeline-legend" id="legend"></ul>
+        <p class="timeline-note" id="timeline-note"></p>
+      </section>
     </section>
     <aside class="panel graph-panel" id="details" aria-live="polite"></aside>
   </main>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.8.0/maplibre-gl.min.js"></script>
-  <script type="module" src="globe.js"></script>
+  <script type="module" src="time.js"></script>
 </body>
 </html>
