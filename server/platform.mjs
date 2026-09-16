@@ -40,7 +40,7 @@ export const SERVICES = [
   ['graph-view', 'The Graph view', ['public/graph.html', 'public/graph.js']],
   ['levels-view', 'The Levels view', ['public/levels.html', 'public/levels.js', 'public/levels.mjs']],
   ['composer', 'The graphical composer', ['public/compose.html', 'public/composer.js']],
-  ['demesnes', 'Demesnes, the Globe and the Timeline', ['public/space.mjs', 'public/map.mjs', 'public/globe.html', 'public/globe.js',
+  ['demesnes', 'Demesnes, the Globe and the Timeline', ['public/space.mjs', 'public/map.mjs', 'public/land.mjs', 'public/globe.html', 'public/globe.js',
                                                         'public/timeline.mjs', 'public/time.html', 'public/time.js', 'public/example-demesnes.mjs']],
   ['shared', 'Shared helpers', ['public/common.mjs']],
   ['guide', 'The reading guide and the style', ['public/guide.html', 'public/style.css']],

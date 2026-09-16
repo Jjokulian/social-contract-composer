@@ -16,6 +16,9 @@ const token = (name, fallback) => getComputedStyle(document.documentElement).get
 
 const state = { space: 'earth', by: 'level', hidden: new Set(), at: null, example: null, when: null, cases: new Set(Object.keys(CASES)) };
 let data, map, marker, layered = [], layers = [], cues = new Map(), outOfForce = 0;
+// The base map carries names while the view stands in the present, and none once it stands at an instant.
+const wantLabels = () => !state.when;
+let labelled = true;
 
 function readUrl() {
   const q = new URLSearchParams(location.search);
@@ -146,7 +149,8 @@ function layersHtml() {
     </label>
     ${!state.when ? '<p class="detail-note">A year, month or day: 1789, 1789-04-30, or -0323 for 323 BC. Empty shows every demesne, whenever it was in force.</p>'
       : !instant(state.when) ? `<p class="detail-note">“${esc(state.when)}” is not a time I can read, so every demesne is shown. Try 1789, 1789-04-30, or -0323 for 323 BC.</p>`
-      : `<p class="detail-note">The demesnes in force at ${esc(state.when)}${outOfForce ? `; ${plural(outOfForce, 'demesne')} out of force ${outOfForce === 1 ? 'is' : 'are'} hidden` : ''}.</p>`}
+      : `<p class="detail-note">The demesnes in force at ${esc(state.when)}${outOfForce ? `; ${plural(outOfForce, 'demesne')} out of force ${outOfForce === 1 ? 'is' : 'are'} hidden` : ''}.
+           The base map drops its names at an instant: today’s would be of today. Its coastlines are modern.</p>`}
     ${layers.length ? `<ul class="layer-toggles">${rows}</ul>` : '<p class="empty">Layers appear once there are demesnes.</p>'}
     ${shown.length > PATTERNS.length ? `<p class="detail-note">More than ${PATTERNS.length} layers are shown, so their patterns repeat: hide some to tell them apart.</p>` : ''}
     <fieldset class="layers"><legend>Cases</legend>
@@ -184,6 +188,10 @@ function panel() {
 
 function refresh({ refit = false } = {}) {
   compute();
+  if (map && wantLabels() !== labelled) {
+    labelled = wantLabels();
+    map.setStyle(styleFor(state.space, { labels: labelled }));   // its style.load draws the demesnes again
+  }
   map.getSource('demesnes')?.setData(features());
   placeMarker();
   panel();
@@ -208,7 +216,9 @@ async function main() {
   panel();
   writeUrl();
 
-  map = new maplibregl.Map({ container: 'map', style: styleFor(state.space), center: [-30, 25], zoom: 1.3, attributionControl: { compact: true } });
+  labelled = wantLabels();
+  map = new maplibregl.Map({ container: 'map', style: styleFor(state.space, { labels: labelled }), center: [-30, 25], zoom: 1.3,
+                             attributionControl: { compact: true } });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
   map.on('style.load', addDemesnes);
   map.once('load', () => { placeMarker(); fit(); });
@@ -219,7 +229,8 @@ async function main() {
     state.at = null;
     state.hidden.clear();
     compute();
-    map.setStyle(styleFor(state.space));   // its style.load draws the demesnes again
+    labelled = wantLabels();
+    map.setStyle(styleFor(state.space, { labels: labelled }));   // its style.load draws the demesnes again
     placeMarker();
     panel();
     writeUrl();

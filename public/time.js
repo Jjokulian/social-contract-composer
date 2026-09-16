@@ -339,10 +339,12 @@ async function main() {
   renderScrub();
   writeUrl();   // the instant it opens at is the instant a link carries
   $('#timeline-note').textContent = span
-    ? 'Drag along the strip, or press Play. Each band is a nesting level; a mark below the years is a demesne beginning or ending, and a thicker one is a demesne that came after another.'
+    ? 'Drag along the strip, or press Play. Each band is a nesting level; a mark below the years is a demesne beginning or ending, and a thicker one is a demesne that came after another. The base map carries no names, since today’s would be of today; its coastlines are modern.'
     : 'No demesne records a period yet, so there is nothing to lay out in time. The Globe shows them all.';
 
-  map = new maplibregl.Map({ container: 'map', style: styleFor(state.space), center: [-30, 25], zoom: 1.3, attributionControl: { compact: true } });
+  // This view always stands at an instant, so its base map never carries names: today's would be of today.
+  map = new maplibregl.Map({ container: 'map', style: styleFor(state.space, { labels: false }), center: [-30, 25], zoom: 1.3,
+                             attributionControl: { compact: true } });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
   map.on('style.load', () => addDemesneLayers(map, featuresOf(map, layered, cues)));
   map.once('load', fit);
@@ -356,7 +358,7 @@ async function main() {
     state.space = e.target.value;
     state.when = null;
     prepare();
-    map.setStyle(styleFor(state.space));   // its style.load draws the demesnes again
+    map.setStyle(styleFor(state.space, { labels: false }));   // its style.load draws the demesnes again
     refresh({ refit: true });
   });
   $('#scrub').addEventListener('input', e => { stopPlaying(); moveTo(Number(e.target.value)); });

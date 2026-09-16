@@ -4,6 +4,8 @@
 // Colours tell neighbouring demesnes within a layer apart; patterns tell the layers apart: a tint for the first layer
 // shown, then hatchings. The four colours pass colour-vision separation for every pair against a light ground, and the
 // map's ground (the base map) stays light in either theme.
+import { LAND } from './land.mjs';
+
 export const COLOURS = ['#2a78d6', '#eb6834', '#1baf7a', '#4a3aa7'];
 export const PATTERNS = ['tint', 'hatch', 'counter-hatch', 'lines', 'dots'];
 const SIZE = 12;
@@ -46,15 +48,34 @@ const OSM = {
   type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19,
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 };
-// Earth has a base map; any other body is drawn as a bare globe in its own frame.
-export const styleFor = space => ({
-  version: 8,
-  sources: space === 'earth' ? { osm: OSM } : {},
-  layers: [
-    { id: 'ground', type: 'background', paint: { 'background-color': '#d9ddd4' } },
-    ...(space === 'earth' ? [{ id: 'osm', type: 'raster', source: 'osm' }] : []),
-  ],
-});
+// A view standing at an instant takes no base map of today: its countries, cities and roads are of today, and over a
+// demesne of 323 BC they say nothing true. What it keeps is the coastline, drawn from land we ship ourselves, so the
+// page depends on nobody's tiles and nothing on it is a name.
+const WATER = '#cfdce4', SHORE = '#e9e7dc', COAST = '#b4b9aa';
+const outline = {
+  type: 'geojson', data: { type: 'Feature', properties: {}, geometry: LAND },
+  attribution: 'Land: <a href="https://www.naturalearthdata.com/">Natural Earth</a>, public domain',
+};
+
+// Earth has a base map where a view stands in the present; at an instant it has the coastline alone, and any other
+// body is drawn as a bare globe in its own frame.
+export const styleFor = (space, { labels = true } = {}) => {
+  if (space !== 'earth') return { version: 8, sources: {}, layers: [{ id: 'ground', type: 'background', paint: { 'background-color': '#d9ddd4' } }] };
+  if (labels) {
+    return { version: 8, sources: { base: OSM },
+             layers: [{ id: 'ground', type: 'background', paint: { 'background-color': '#d9ddd4' } },
+                      { id: 'base', type: 'raster', source: 'base' }] };
+  }
+  return {
+    version: 8,
+    sources: { land: outline },
+    layers: [
+      { id: 'ground', type: 'background', paint: { 'background-color': WATER } },
+      { id: 'land', type: 'fill', source: 'land', paint: { 'fill-color': SHORE } },
+      { id: 'coast', type: 'line', source: 'land', paint: { 'line-color': COAST, 'line-width': 0.8 } },
+    ],
+  };
+};
 
 // The demesnes to draw, as GeoJSON, registering each pattern with the map as it is first used.
 export function featuresOf(map, layered, cues) {
