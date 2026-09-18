@@ -5,7 +5,7 @@
 // references; the claims and influences that point at anything rewritten; then a contract revision pinning it all.
 // Existing references are kept. A nano that someone else's claim in the contract points at is left alone and reported as
 // blocked: rewriting it would silently detach their claim.
-import { addNano, reviseContract, resolveContract, catalogue, TEXT_FIELD } from './store.mjs';
+import { addNano, reviseContract, resolveContract, catalogue, nanoId, TEXT_FIELD } from './store.mjs';
 import { compose } from '../public/compose.mjs';
 import { suggest } from '../public/picos.mjs';
 import { latestById } from '../public/common.mjs';
@@ -67,9 +67,15 @@ export function relinkContract(db, contractRef, { filedBy, source }) {
   const picoList = () => [...defined.values()].map(p => ({ ref: p.ref, forms: p.forms }));
   const blocked = [], rewritten = [];
 
+  // A reference follows its pico to the revision the contract defines: the one rewritten here, or a newer one written
+  // before this relink. Adopting is what a relink is for; a nano someone else's claim points at is left alone below.
+  const current = ref => {
+    const pico = defined.get(nanoId(ref));
+    return pico && nanoId(pico.ref) === nanoId(ref) ? pico.ref : ref;
+  };
   // A nano's references after relinking: its recorded ones (following rewritten picos), plus any suggestions missing.
   const referencesFor = n => {
-    const kept = (n.picos ?? []).map(p => ({ phrase: p.phrase, pico: map.get(p.pico) ?? p.pico }));
+    const kept = (n.picos ?? []).map(p => ({ phrase: p.phrase, pico: current(map.get(p.pico) ?? p.pico) }));
     const missing = suggest(n[TEXT_FIELD[n.kind]] ?? '', picoList(), n.ref)
       .filter(s => !kept.some(k => k.phrase.toLowerCase() === s.phrase.toLowerCase()));
     return [...kept, ...missing];

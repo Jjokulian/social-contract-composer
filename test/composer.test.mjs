@@ -504,6 +504,31 @@ test('a contract says what it is: one to compose with, a record of what was, or 
   assert.equal(catalogue(db).demesnes.find(d => d.ref === empire).case, 'historical', 'the revision it pins, not the latest');
 });
 
+test('relinking follows a pico to the revision its contract defines, and leaves the text alone', () => {
+  const { db } = buildFixture();
+  const by = { filedBy: 'planners', source: 'test' };
+  addVocabulary(db, 'term', 'midday-shade', 'midday shade');
+  const first = addNano(db, { ...by, id: 'midday-shade.trees', kind: 'definition', term: 'midday-shade', forms: ['midday shade'],
+                              meaning: 'Cover from the sun.' }).ref;
+  const clause = addNano(db, { ...by, id: 'plant-for-midday-shade', kind: 'clause', role: 'council', modality: 'shall',
+                               text: 'Plant trees for midday shade.', picos: [{ phrase: 'midday shade', pico: first }] }).ref;
+  addContract(db, { ...by, id: 'shade-rules', scale: 'micro', title: 'Shade', members: [first, clause] });
+
+  // A better definition of the word, adopted by the contract: the clause still names the revision it was written with.
+  const second = addNano(db, { ...by, id: 'midday-shade.trees', kind: 'definition', term: 'midday-shade', forms: ['midday shade'],
+                               meaning: 'Cover from the sun when it stands highest.' }).ref;
+  reviseContract(db, 'shade-rules', { ...by, replace: { [first]: second } });
+  assert.equal(catalogue(db).nanos[clause].picos[0].pico, first, 'until it is relinked');
+
+  relinkContract(db, 'shade-rules', { filedBy: 'planners', source: 'relinked in a test' });
+  const cat = catalogue(db);
+  const now = Object.values(cat.contracts).filter(c => c.id === 'shade-rules').sort((a, b) => b.rev - a.rev)[0];
+  const rewritten = now.members.map(ref => cat.nanos[ref]).find(n => n.id === 'plant-for-midday-shade');
+  assert.equal(rewritten.picos[0].pico, second, 'the clause records the revision the contract defines');
+  assert.equal(rewritten.text, 'Plant trees for midday shade.', 'and its words are untouched');
+  assert.equal(rewritten.rev, 2, 'by a new revision, never by changing the old one');
+});
+
 test('the example demesnes nest as described: a shield segmented exhaustively, with islands within', () => {
   const all = layering(EXAMPLE, 'earth');
   const of = id => all.find(d => d.id === `example-${id}`);
