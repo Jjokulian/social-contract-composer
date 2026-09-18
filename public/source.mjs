@@ -10,7 +10,7 @@ export async function getJSON(path) {
   return body;
 }
 
-export const STORES = { catalogue: 'Catalogue', knowledge: 'Knowledge', system: 'Platform' };
+export const STORES = { catalogue: 'Contracts', knowledge: 'Knowledge', system: 'Platform' };
 export const storeOf = search => {
   const asked = new URLSearchParams(search).get('store');
   return asked && Object.hasOwn(STORES, asked) ? asked : 'catalogue';
