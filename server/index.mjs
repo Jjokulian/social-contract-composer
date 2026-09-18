@@ -15,8 +15,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openStore, listContracts, catalogue, describe, resolve, addNano, addContract, addDemesne, listDemesnes, StoreError,
-         DEFAULT_PATH, SYSTEM_PATH } from './store.mjs';
+import { openStore, listContracts, catalogue, mergeCatalogues, describe, resolve, addNano, addContract, addDemesne, listDemesnes, StoreError,
+         DEFAULT_PATH, KNOWLEDGE_PATH, SYSTEM_PATH } from './store.mjs';
 import { report, snapshot } from './checks.mjs';
 import { layering, stackAt, instant } from '../public/space.mjs';
 
@@ -29,13 +29,22 @@ const TYPES = {
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
 };
 
-// The catalogue of contracts, and the platform's own structure in the same schema: read-only unless writes are on.
-const stores = { catalogue: openStore(DEFAULT_PATH, { readonly: !WRITES }), system: openStore(SYSTEM_PATH, { readonly: !WRITES }) };
-const storeFor = query => {
+// The catalogue of contracts, the bodies of knowledge it refers to, and the platform's own structure, all in the same
+// schema: read-only unless writes are on. The first two are one space to compose in (mergeCatalogues); the platform's
+// stands on its own, since code is never composed into a milli.
+const stores = {
+  catalogue: openStore(DEFAULT_PATH, { readonly: !WRITES }),
+  knowledge: openStore(KNOWLEDGE_PATH, { readonly: !WRITES }),
+  system: openStore(SYSTEM_PATH, { readonly: !WRITES }),
+};
+const COMPOSED_WITH = { catalogue: ['catalogue', 'knowledge'], knowledge: ['catalogue', 'knowledge'], system: ['system'] };
+const spaceFor = name => mergeCatalogues(...COMPOSED_WITH[name].map(s => catalogue(stores[s])));
+const nameFor = query => {
   const name = query.get('store') ?? 'catalogue';
   if (!Object.hasOwn(stores, name)) throw new StoreError(`no store ${name}: use ${Object.keys(stores).join(' or ')}`, 404);
-  return stores[name];
+  return name;
 };
+const storeFor = query => stores[nameFor(query)];
 
 const parameterOverrides = query =>
   Object.fromEntries([...query].filter(([key]) => key.startsWith('p.')).map(([key, value]) => [key.slice(2), value]));
@@ -44,10 +53,12 @@ const parameterOverrides = query =>
 const routes = [
   { method: 'GET', path: /^\/api\/config$/, run: () => ({ server: true, writes: WRITES, stores: Object.keys(stores) }) },
   { method: 'GET', path: /^\/api\/contracts$/, run: ({ db }) => listContracts(db) },
-  { method: 'GET', path: /^\/api\/catalogue$/, run: ({ db }) => catalogue(db) },
+  // Reading one store lists what that store holds; composing reaches the whole space it composes in.
+  { method: 'GET', path: /^\/api\/catalogue$/, run: ({ store }) => spaceFor(store) },
   { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/report$/,
-    run: ({ db, params: [ref], query }) => report(db, ref, { society: query.get('society') || null, parameters: parameterOverrides(query) }) },
-  { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/snapshot$/, run: ({ db, params: [ref] }) => snapshot(db, ref) },
+    run: ({ db, params: [ref], query, store }) =>
+      report(db, ref, { society: query.get('society') || null, parameters: parameterOverrides(query), cat: spaceFor(store) }) },
+  { method: 'GET', path: /^\/api\/contracts\/([^/]+)\/snapshot$/, run: ({ db, params: [ref], store }) => snapshot(db, ref, spaceFor(store)) },
   { method: 'GET', path: /^\/api\/societies$/, run: ({ db }) => db.prepare('SELECT id, label FROM society ORDER BY label').all() },
   { method: 'GET', path: /^\/api\/nanos\/([^/]+)$/, run: ({ db, params: [ref] }) => describe(db, resolve(db, ref)) },
   { method: 'GET', path: /^\/api\/demesnes$/, run: ({ db }) => listDemesnes(db) },
@@ -101,7 +112,8 @@ createServer(async (req, res) => {
     if (route.writes && !WRITES) return send(res, 403, { error: 'Writes are off. Start the server with COMPOSER_ALLOW_WRITES=1 to allow them.' });
     const body = req.method === 'POST' ? JSON.parse((await readBody(req)) || '{}') : null;
     const params = route.path.exec(url.pathname).slice(1).map(decodeURIComponent);
-    send(res, req.method === 'POST' ? 201 : 200, route.run({ params, query: url.searchParams, body, db: storeFor(url.searchParams) }));
+    send(res, req.method === 'POST' ? 201 : 200,
+         route.run({ params, query: url.searchParams, body, db: storeFor(url.searchParams), store: nameFor(url.searchParams) }));
   } catch (err) {
     const status = err instanceof StoreError || err.status ? err.status
       : err instanceof SyntaxError || err instanceof URIError || String(err.code).startsWith('SQLITE_CONSTRAINT') ? 400   // a malformed body or address

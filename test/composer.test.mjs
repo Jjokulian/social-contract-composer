@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addNano, addContract, reviseContract, catalogue, addVocabulary, addDemesne, listContracts } from '../server/store.mjs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { addNano, addContract, reviseContract, catalogue, addVocabulary, addDemesne, listContracts, openStore,
+         mergeCatalogues } from '../server/store.mjs';
 import { layering, stackAt, layersOf, paint, relate, instant } from '../public/space.mjs';
 import { EXAMPLE } from '../public/example-demesnes.mjs';
 import { relinkContract } from '../server/relink.mjs';
@@ -502,6 +506,45 @@ test('a contract says what it is: one to compose with, a record of what was, or 
   const empire = addDemesne(db, { ...by, id: 'empire-of-then', name: 'The empire', milli: then, space: 'earth',
     segment: square(0, 0, 3, 3), from: '-0336', until: '-0323' }).ref;
   assert.equal(catalogue(db).demesnes.find(d => d.ref === empire).case, 'historical', 'the revision it pins, not the latest');
+});
+
+test('stores are separate files and one space to compose in', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'composer-stores-'));
+  const contracts = openStore(join(dir, 'contracts.sqlite'));
+  const knowledge = openStore(join(dir, 'knowledge.sqlite'));
+  for (const db of [contracts, knowledge]) {
+    addVocabulary(db, 'author', 'planners', 'Planners');
+    addVocabulary(db, 'role', 'council', 'Council');
+  }
+  const by = { filedBy: 'planners', source: 'test' };
+  const clause = (db, id, text) => addNano(db, { ...by, id, kind: 'clause', role: 'council', modality: 'shall', text }).ref;
+
+  // What is known, in its own store; what is agreed to, in the other.
+  const finding = clause(knowledge, 'shade-cools', 'Shade lowers the temperature beneath it.');
+  const body = addContract(knowledge, { ...by, id: 'what-shade-does', scale: 'micro', title: 'What shade does', case: 'proposed',
+                                        members: [finding] }).ref;
+  const rule = clause(contracts, 'plant-trees', 'Plant trees along the street.');
+  const milli = addContract(contracts, { ...by, id: 'street', scale: 'social', title: 'The street', members: [rule] }).ref;
+
+  const space = mergeCatalogues(catalogue(contracts), catalogue(knowledge));
+  assert.ok(space.contracts[body] && space.contracts[milli], 'both stores are in the one space');
+
+  // A milli composes the knowledge it attaches, which neither store could reach alone.
+  const draft = { ...space.contracts[milli], ref: undefined, includes: [{ ref: body, mode: 'add' }] };
+  assert.ok(compose(space, draft).clauses.includes(finding), 'what the body of knowledge holds is in the composition');
+  assert.throws(() => compose(catalogue(contracts), draft), /no contract/, 'and one store alone cannot reach it');
+
+  // The same ref in two stores is the same thing…
+  const again = clause(knowledge, 'plant-trees', 'Plant trees along the street.');
+  assert.equal(again, rule, 'written word for word, it is one nano');
+  assert.ok(mergeCatalogues(catalogue(contracts), catalogue(knowledge)).nanos[rule], 'and the space holds it once');
+
+  // …or it is a fault, never a winner picked for you.
+  const elsewhere = openStore(join(dir, 'elsewhere.sqlite'));
+  addVocabulary(elsewhere, 'author', 'planners', 'Planners');
+  addVocabulary(elsewhere, 'role', 'council', 'Council');
+  clause(elsewhere, 'plant-trees', 'Plant hedges along the street instead.');
+  assert.throws(() => mergeCatalogues(catalogue(contracts), catalogue(elsewhere)), /is in two stores, and they differ/);
 });
 
 test('relinking follows a pico to the revision its contract defines, and leaves the text alone', () => {

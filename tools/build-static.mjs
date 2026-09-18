@@ -4,30 +4,38 @@
 // The server stays the primary way to run the composer; this is a second way to publish the same data.
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { openStore, listContracts, listDemesnes, catalogue, DEFAULT_PATH, SYSTEM_PATH } from '../server/store.mjs';
+import { openStore, listContracts, listDemesnes, catalogue, mergeCatalogues, DEFAULT_PATH, KNOWLEDGE_PATH, SYSTEM_PATH } from '../server/store.mjs';
 import { snapshot } from '../server/checks.mjs';
 
 const OUT = new URL('../dist/', import.meta.url);
-const STORES = [['catalogue', DEFAULT_PATH, 'data/'], ['system', SYSTEM_PATH, 'data/system/']];   // named as ?store= names them
+const STORES = [['catalogue', DEFAULT_PATH, 'data/'], ['knowledge', KNOWLEDGE_PATH, 'data/knowledge/'],
+                ['system', SYSTEM_PATH, 'data/system/']];   // named as ?store= names them
 
 rmSync(OUT, { recursive: true, force: true });
 cpSync(new URL('../public/', import.meta.url), OUT, { recursive: true });
 const write = (path, data) => writeFileSync(new URL(path, OUT), typeof data === 'string' ? data : JSON.stringify(data));
 
 const baked = [];
-for (const [name, path, dir] of STORES) {
-  const db = openStore(path, { readonly: true });
+const opened = new Map(STORES.map(([name, path]) => [name, openStore(path, { readonly: true })]));
+// A store lists what it holds, but composing reaches the whole space: the catalogue of social contracts and the bodies
+// of knowledge are one space, so a milli reaches the knowledge it attaches; the platform's store stands on its own.
+let composed = null;
+const spaceFor = name => (name === 'system' ? catalogue(opened.get('system'))
+  : (composed ??= mergeCatalogues(catalogue(opened.get('catalogue')), catalogue(opened.get('knowledge')))));
+
+for (const [name, , dir] of STORES) {
+  const db = opened.get(name);
   mkdirSync(new URL(`${dir}snapshots/`, OUT), { recursive: true });
   const contracts = listContracts(db);
   write(`${dir}contracts.json`, contracts);
   write(`${dir}societies.json`, db.prepare('SELECT id, label FROM society ORDER BY label').all());
-  const cat = catalogue(db);   // built once per store: every snapshot composes from it, and it is published as it is
-  for (const c of contracts) write(`${dir}snapshots/${c.id}.json`, snapshot(db, c.ref, cat));
-  write(`${dir}catalogue.json`, cat);   // every nano and contract, for composing drafts in the browser
+  const space = spaceFor(name);   // built once: every snapshot composes from it, and it is published as it is
+  for (const c of contracts) write(`${dir}snapshots/${c.id}.json`, snapshot(db, c.ref, space));
+  write(`${dir}catalogue.json`, space);   // every nano and contract it may compose with, for composing drafts in the browser
   write(`${dir}demesnes.json`, listDemesnes(db)); // millis implemented on coordinate spaces; the browser computes the layers
   baked.push(`${contracts.length} ${name}`);
-  db.close();
 }
+for (const db of opened.values()) db.close();
 write('.nojekyll', '');   // serve every file as-is
 
 // Hosts cache files for minutes (GitHub Pages: max-age=600). Stamp the scripts and stylesheet with a hash of

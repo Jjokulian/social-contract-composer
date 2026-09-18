@@ -14,8 +14,10 @@ export function snapshot(db, contractRef, cat = catalogue(db)) {
   return compose(cat, cat.contracts[ref]);
 }
 
-export function report(db, contractRef, { parameters = {}, society = null } = {}) {
+// `cat` is the space to compose in, where that is more than this one store: the catalogue and the bodies of knowledge
+// are merged before anything is composed (server/store.mjs), so a milli reaches the knowledge it attaches.
+export function report(db, contractRef, { parameters = {}, society = null, cat } = {}) {
   if (society !== null && !db.prepare('SELECT 1 FROM society WHERE id = ?').get(society))
     throw new StoreError(`no society ${society}`, 404);
-  return evaluate(snapshot(db, contractRef), { parameters, society });
+  return evaluate(snapshot(db, contractRef, cat), { parameters, society });
 }

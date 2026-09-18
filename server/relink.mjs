@@ -10,8 +10,9 @@ import { compose } from '../public/compose.mjs';
 import { suggest } from '../public/picos.mjs';
 import { latestById } from '../public/common.mjs';
 
-// What addNano takes, from what describe() returns.
-function toInput(n) {
+// What addNano takes, from what describe() returns. Exported because copying a nano verbatim into another store — when
+// a body of knowledge moves and takes what it refers to with it — needs the same mapping a relink uses.
+export function toInput(n) {
   const base = { id: n.id, kind: n.kind };
   switch (n.kind) {
     case 'intent': return { ...base, statement: n.statement };

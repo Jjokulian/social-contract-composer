@@ -8,6 +8,9 @@ import { checkSegment, instant } from '../public/space.mjs';
 export const DEFAULT_PATH = fileURLToPath(new URL('../store/composer.sqlite', import.meta.url));
 // The platform's own structure (its vocabulary, and in time its requirements and deployments), in the same schema.
 export const SYSTEM_PATH = fileURLToPath(new URL('../store/system.sqlite', import.meta.url));
+// Bodies of knowledge: what is known, at every scale from a pico to a milli. Its own file, because knowing something is
+// not agreeing to it; one space to compose in with the catalogue, because a milli attaches the knowledge it trusts.
+export const KNOWLEDGE_PATH = fileURLToPath(new URL('../store/knowledge.sqlite', import.meta.url));
 const SCHEMA = readFileSync(new URL('../store/schema.sql', import.meta.url), 'utf8');
 
 export class StoreError extends Error {
@@ -464,6 +467,37 @@ export function describe(db, rid) {
 
 // The whole store as plain JSON: every nano revision, every contract revision's structure, and every society's
 // latest observation of each measure. public/compose.mjs composes snapshots from it, on the server and in the browser.
+// One space to compose in, from stores kept apart as files. A composition reaches whatever it includes, so the
+// catalogue of social contracts and the bodies of knowledge are merged before anything is composed; the platform's own
+// store stays out of it, since code is never composed into a milli.
+//
+// Merging is by reference: the same ref in two stores is the same nano or contract, and the same ref carrying
+// different content is a fault, not something to pick a winner from. So a body of knowledge that moves stores takes
+// what it refers to with it, word for word — those are the same nanos — while anything that means something else there
+// takes an id of its own.
+export function mergeCatalogues(...catalogues) {
+  const out = { nanos: {}, contracts: {}, observations: {} };
+  const seen = new Map();
+  for (const cat of catalogues) {
+    for (const kind of ['nanos', 'contracts'])
+      for (const [ref, value] of Object.entries(cat[kind] ?? {})) {
+        // What a store holds, without what is only true of storing it: a nano written into two stores has two row
+        // numbers and two times of writing, and is still the same nano.
+        const key = `${kind}:${ref}`, stamp = JSON.stringify({ ...value, rid: undefined, crid: undefined, createdAt: undefined });
+        if (seen.has(key) && seen.get(key) !== stamp) throw new StoreError(`${ref} is in two stores, and they differ`);
+        seen.set(key, stamp);
+        out[kind][ref] = value;
+      }
+    for (const [measure, societies] of Object.entries(cat.observations ?? {}))
+      out.observations[measure] = { ...out.observations[measure], ...societies };
+    for (const list of ['roles', 'socioshipTerms', 'spaces', 'demesnes']) {
+      const held = new Set((out[list] ?? []).map(x => x.id ?? x.ref));
+      out[list] = [...(out[list] ?? []), ...(cat[list] ?? []).filter(x => !held.has(x.id ?? x.ref))];
+    }
+  }
+  return out;
+}
+
 export function catalogue(db) {
   const nanos = Object.fromEntries(db.prepare('SELECT rid FROM revision ORDER BY rid').pluck().all()
     .map(rid => { const n = describe(db, rid); return [n.ref, n]; }));

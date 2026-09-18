@@ -5,6 +5,7 @@ A composer of social contracts. The scale: a **milli** is a composed Social Cont
 ## Where things are
 
 - `store/composer.sqlite`: the store, and the only copy of the data. `store/schema.sql` has the schema and integrity triggers.
+- `store/knowledge.sqlite`: bodies of knowledge, at every scale from a pico to a milli — what is known, which is not what is agreed to. Kept apart as a file, composed as one space: `mergeCatalogues` unions it with the catalogue before anything is composed, so a milli attaches the knowledge it trusts to the intent that knowledge serves (`?store=knowledge` lists it; the platform's store is never merged, since code is not composed into a milli). A ref may be in two stores only where it is the same thing, word for word; anything else takes an id of its own.
 - `store/system.sqlite`: the platform's own store, in the same schema: the composer's vocabulary (the `vocabulary` micro) and the `social-contract-composer` application milli. In software terms a pico is a logical unit, a nano a functional unit, a micro a service, a milli an application and a demesne its implementation. The server reads it with `?store=system` on any route, the static build bakes it into `dist/data/system/`, and the Contracts and Graph views switch to it with their Store control.
 - `server/store.mjs`: read and write nanos and contracts; `reviseContract` derives a contract's next revision from its current one.
 - `public/compose.mjs`, `public/evaluate.mjs`, `public/picos.mjs`: pure modules shared by the server, the static build and the browser.
