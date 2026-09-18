@@ -620,3 +620,42 @@ DROP VIEW IF EXISTS composition_claim;
 DROP VIEW IF EXISTS composition_influence;
 DROP VIEW IF EXISTS composition_definition_clash;
 DROP VIEW IF EXISTS claim_disagreement;
+
+-- ── Links that cross stores ──────────────────────────────────────────────────
+--
+-- The stores are separate files and one space to compose in (server/store.mjs): a milli reaches the body of knowledge
+-- it attaches to an intent, and a claim names the measure that would check it, without either store swallowing the
+-- other. A body of science narration grows without bound, so a micro or a milli refers to it rather than carrying it.
+--
+-- A link is a row in this store, or a reference into another, never both: a crossing link lives here instead of in the
+-- table beside it. Such a reference is always pinned to a revision, since there is no latest to follow in a store this
+-- one does not hold, and it is resolved when the composition is composed, against the merged space.
+CREATE TABLE IF NOT EXISTS nano_pico_ref (
+  rid      INTEGER NOT NULL REFERENCES revision(rid),
+  phrase   TEXT    NOT NULL CHECK (phrase <> ''),
+  pico_ref TEXT    NOT NULL CHECK (pico_ref GLOB '*@[0-9]*'),
+  PRIMARY KEY (rid, phrase)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS claim_measure_ref (
+  claim_rid   INTEGER NOT NULL REFERENCES claim_body(rid),
+  measure_ref TEXT    NOT NULL CHECK (measure_ref GLOB '*@[0-9]*'),
+  PRIMARY KEY (claim_rid, measure_ref)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS claim_assuming_ref (
+  claim_rid      INTEGER NOT NULL REFERENCES claim_body(rid),
+  assumption_ref TEXT    NOT NULL CHECK (assumption_ref GLOB '*@[0-9]*'),
+  PRIMARY KEY (claim_rid, assumption_ref)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS contract_include_ref (
+  crid             INTEGER NOT NULL REFERENCES contract_rev(crid),
+  included_ref     TEXT    NOT NULL CHECK (included_ref GLOB '*@[0-9]*'),
+  mode             TEXT    NOT NULL CHECK (mode IN ('nest', 'add')),
+  base             INTEGER NOT NULL DEFAULT 0 CHECK (base IN (0, 1)),
+  under_intent_rid INTEGER,
+  PRIMARY KEY (crid, included_ref),
+  FOREIGN KEY (crid, under_intent_rid) REFERENCES contract_intent(crid, intent_rid),
+  CHECK ((mode = 'nest') = (under_intent_rid IS NOT NULL))
+) STRICT;

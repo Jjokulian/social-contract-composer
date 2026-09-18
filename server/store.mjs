@@ -8,8 +8,9 @@ import { checkSegment, instant } from '../public/space.mjs';
 export const DEFAULT_PATH = fileURLToPath(new URL('../store/composer.sqlite', import.meta.url));
 // The platform's own structure (its vocabulary, and in time its requirements and deployments), in the same schema.
 export const SYSTEM_PATH = fileURLToPath(new URL('../store/system.sqlite', import.meta.url));
-// Bodies of knowledge: what is known, at every scale from a pico to a milli. Its own file, because knowing something is
-// not agreeing to it; one space to compose in with the catalogue, because a milli attaches the knowledge it trusts.
+// Bodies of knowledge, at every scale from a pico to a milli. Its own file because the narration built on real things
+// grows without bound, and a micro or a milli refers to it rather than carrying it; one space to compose in with the
+// catalogue, because a milli attaches the body of knowledge it trusts to the intent that body serves.
 export const KNOWLEDGE_PATH = fileURLToPath(new URL('../store/knowledge.sqlite', import.meta.url));
 const SCHEMA = readFileSync(new URL('../store/schema.sql', import.meta.url), 'utf8');
 
@@ -17,10 +18,18 @@ export class StoreError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
 
+// The tables the schema declares. A store opened read-only is never migrated, so one left behind by a schema change
+// would fail deep inside a query; this says so at the door, and says what to do about it.
+const TABLES = [...SCHEMA.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map(m => m[1]);
+
 export function openStore(path = DEFAULT_PATH, { readonly = false } = {}) {
   const db = new Database(path, { readonly, fileMustExist: readonly });
   db.pragma('foreign_keys = ON');
-  if (!readonly) { db.exec(SCHEMA); migrate(db); }
+  if (!readonly) { db.exec(SCHEMA); migrate(db); return db; }
+  const held = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").pluck().all());
+  const missing = TABLES.filter(table => !held.has(table));
+  if (missing.length)
+    throw new StoreError(`${path} is behind the schema (no ${missing.join(', ')}): open it once for writing to bring it up`, 500);
   return db;
 }
 
@@ -33,6 +42,7 @@ export const APPEND_ONLY = [
   'evaluation_body', 'influence_body', 'consequence_body', 'unit_body', 'unit_depends', 'unit_moved',
   'contract', 'contract_rev', 'contract_intent', 'contract_refines', 'contract_member', 'contract_parameter', 'contract_include',
   'contract_breach', 'contract_enforcement', 'contract_socioship', 'contract_operation', 'contract_resolution', 'contract_specialis',
+  'nano_pico_ref', 'claim_measure_ref', 'claim_assuming_ref', 'contract_include_ref',   // links that cross stores
   'demesne', 'demesne_rev',
 ];
 
@@ -99,6 +109,20 @@ export function resolve(db, ref, kind) {
   return row.rid;
 }
 
+// A link to a nano: a row where it lives in this store, a reference where it lives in another. The stores are one space
+// to compose in, so a claim may name a measure kept with the body of knowledge that would check it, and a nano may name
+// a pico defined there. A crossing reference is pinned to a revision — there is no latest to follow in a store this one
+// does not hold — and is resolved when the composition is composed, against the merged space.
+export function linkTo(db, ref, kind) {
+  try {
+    return { rid: resolve(db, ref, kind) };
+  } catch (err) {
+    if (err.status !== 404) throw err;   // a kind that doesn't match is a fault here, not a crossing
+    if (parseRef(ref).rev === null) throw new StoreError(`${ref} is not in this store, so name the revision it is pinned to`, 400);
+    return { ref: String(ref).trim() };
+  }
+}
+
 export function resolveContract(db, ref) {
   const { id, rev } = parseRef(ref);
   const crid = rev === null
@@ -106,6 +130,17 @@ export function resolveContract(db, ref) {
     : db.prepare('SELECT crid FROM contract_rev WHERE contract_id = ? AND rev = ?').pluck().get(id, rev);
   if (crid === undefined) throw new StoreError(`no contract ${ref}`, 404);
   return crid;
+}
+
+// The same, for a contract a composition includes.
+export function linkToContract(db, ref) {
+  try {
+    return { crid: resolveContract(db, ref) };
+  } catch (err) {
+    if (err.status !== 404) throw err;
+    if (parseRef(ref).rev === null) throw new StoreError(`${ref} is not in this store, so name the revision it is pinned to`, 400);
+    return { ref: String(ref).trim() };
+  }
 }
 
 export function refOf(db, rid) {
@@ -158,10 +193,16 @@ const WRITE = {
     for (const w of b.when ?? [])
       db.prepare('INSERT INTO claim_when (claim_rid, parameter_rid, op, value) VALUES (?, ?, ?, ?)')
         .run(rid, resolve(db, w.parameter, 'parameter'), w.op, w.value);
-    for (const ref of b.assuming ?? [])
-      db.prepare('INSERT INTO claim_assuming (claim_rid, assumption_rid) VALUES (?, ?)').run(rid, resolve(db, ref, 'assumption'));
-    for (const ref of b.measuredBy ?? [])
-      db.prepare('INSERT INTO claim_measure (claim_rid, measure_rid) VALUES (?, ?)').run(rid, resolve(db, ref, 'measure'));
+    for (const ref of b.assuming ?? []) {
+      const to = linkTo(db, ref, 'assumption');
+      if (to.rid !== undefined) db.prepare('INSERT INTO claim_assuming (claim_rid, assumption_rid) VALUES (?, ?)').run(rid, to.rid);
+      else db.prepare('INSERT INTO claim_assuming_ref (claim_rid, assumption_ref) VALUES (?, ?)').run(rid, to.ref);
+    }
+    for (const ref of b.measuredBy ?? []) {   // the measure may be kept with the body of knowledge that would check it
+      const to = linkTo(db, ref, 'measure');
+      if (to.rid !== undefined) db.prepare('INSERT INTO claim_measure (claim_rid, measure_rid) VALUES (?, ?)').run(rid, to.rid);
+      else db.prepare('INSERT INTO claim_measure_ref (claim_rid, measure_ref) VALUES (?, ?)').run(rid, to.ref);
+    }
   },
   influence: (db, rid, b) =>
     db.prepare('INSERT INTO influence_body (rid, from_rid, direction, to_rid, rationale) VALUES (?, ?, ?, ?, ?)')
@@ -204,7 +245,9 @@ export function addNano(db, { id, kind, filedBy, source, picos = [], implemented
     const text = String(body[TEXT_FIELD[kind]] ?? '');
     for (const { phrase, pico } of picos) {
       if (!wholeWord(phrase).test(text)) throw new StoreError(`“${phrase}” does not occur as a whole word in the text of ${id}`);
-      db.prepare('INSERT INTO nano_pico (rid, phrase, pico_rid) VALUES (?, ?, ?)').run(rid, phrase, resolve(db, pico, 'definition'));
+      const to = linkTo(db, pico, 'definition');
+      if (to.rid !== undefined) db.prepare('INSERT INTO nano_pico (rid, phrase, pico_rid) VALUES (?, ?, ?)').run(rid, phrase, to.rid);
+      else db.prepare('INSERT INTO nano_pico_ref (rid, phrase, pico_ref) VALUES (?, ?, ?)').run(rid, phrase, to.ref);
     }
     for (const unit of new Set(implementedBy)) db.prepare('INSERT INTO nano_implementation (rid, unit_id) VALUES (?, ?)').run(rid, unit);
     return { ref: `${id}@${rev}`, rid };
@@ -247,9 +290,15 @@ export function addContract(db, { id, scale, title, status = 'draft', case: cont
       db.prepare('INSERT INTO contract_member (crid, rid, position) VALUES (?, ?, ?)').run(crid, resolve(db, ref), position));
     for (const [ref, value] of Object.entries(parameters))
       db.prepare('INSERT INTO contract_parameter (crid, parameter_rid, value) VALUES (?, ?, ?)').run(crid, resolve(db, ref, 'parameter'), value);
-    for (const inc of includes)
-      db.prepare('INSERT INTO contract_include (crid, included_crid, mode, under_intent_rid, base) VALUES (?, ?, ?, ?, ?)')
-        .run(crid, resolveContract(db, inc.contract), inc.mode, inc.under ? ownIntent(inc.under) : null, inc.base ? 1 : 0);
+    for (const inc of includes) {   // a milli may include a body of knowledge kept in another store
+      const to = linkToContract(db, inc.contract), under = inc.under ? ownIntent(inc.under) : null;
+      if (to.crid !== undefined)
+        db.prepare('INSERT INTO contract_include (crid, included_crid, mode, under_intent_rid, base) VALUES (?, ?, ?, ?, ?)')
+          .run(crid, to.crid, inc.mode, under, inc.base ? 1 : 0);
+      else
+        db.prepare('INSERT INTO contract_include_ref (crid, included_ref, mode, under_intent_rid, base) VALUES (?, ?, ?, ?, ?)')
+          .run(crid, to.ref, inc.mode, under, inc.base ? 1 : 0);
+    }
     for (const b of breaches)   // consequences of breach, set by this composition
       db.prepare('INSERT INTO contract_breach (crid, clause_rid, consequence_rid) VALUES (?, ?, ?)')
         .run(crid, resolve(db, b.clause, 'clause'), resolve(db, b.consequence, 'consequence'));
@@ -294,9 +343,12 @@ export function reviseContract(db, id, { replace = {}, add = [], drop = [], addI
     .map(rid => refOf(db, rid)).filter(ref => !drop.includes(ref)).map(swap);
   const parameters = Object.fromEntries(db.prepare('SELECT parameter_rid, value FROM contract_parameter WHERE crid = ?').all(crid)
     .map(p => [swap(refOf(db, p.parameter_rid)), p.value]));
-  const includes = db.prepare('SELECT included_crid, mode, under_intent_rid, base FROM contract_include WHERE crid = ?').all(crid)
+  const includes = [
+    ...db.prepare('SELECT included_crid AS held, NULL AS crossing, mode, under_intent_rid, base FROM contract_include WHERE crid = ?').all(crid),
+    ...db.prepare('SELECT NULL AS held, included_ref AS crossing, mode, under_intent_rid, base FROM contract_include_ref WHERE crid = ?').all(crid),
+  ]
     .map(i => ({
-      contract: swap(contractRefOf(db, i.included_crid)), base: i.base === 1,
+      contract: swap(i.crossing ?? contractRefOf(db, i.held)), base: i.base === 1,
       mode: i.mode, under: i.under_intent_rid === null ? undefined : swap(refOf(db, i.under_intent_rid)),
     }));
   const operations = operationsOf(db, crid).map(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, k === 'op' ? v : swap(v)])));
@@ -422,9 +474,16 @@ const READ = {
       given: db.prepare('SELECT nano_rid FROM claim_given WHERE claim_rid = ?').pluck().all(rid).map(r => refOf(db, r)),
       when: db.prepare('SELECT parameter_rid, op, value FROM claim_when WHERE claim_rid = ?').all(rid)
         .map(w => ({ parameter: refOf(db, w.parameter_rid), op: w.op, value: w.value })),
-      assuming: db.prepare('SELECT assumption_rid FROM claim_assuming WHERE claim_rid = ?').pluck().all(rid)
-        .map(a => ({ ref: refOf(db, a), ...READ.assumption(db, a) })),
-      measuredBy: db.prepare('SELECT measure_rid FROM claim_measure WHERE claim_rid = ?').pluck().all(rid).map(r => refOf(db, r)),
+      assuming: [
+        ...db.prepare('SELECT assumption_rid FROM claim_assuming WHERE claim_rid = ?').pluck().all(rid)
+          .map(a => ({ ref: refOf(db, a), ...READ.assumption(db, a) })),
+        // In another store: the composition reads what it says there, where the whole space is merged.
+        ...db.prepare('SELECT assumption_ref FROM claim_assuming_ref WHERE claim_rid = ?').pluck().all(rid).map(ref => ({ ref })),
+      ],
+      measuredBy: [
+        ...db.prepare('SELECT measure_rid FROM claim_measure WHERE claim_rid = ?').pluck().all(rid).map(r => refOf(db, r)),
+        ...db.prepare('SELECT measure_ref FROM claim_measure_ref WHERE claim_rid = ?').pluck().all(rid),
+      ],
     };
   },
   influence: (db, rid) => {
@@ -459,8 +518,10 @@ export function describe(db, rid) {
   const r = db.prepare(`SELECT r.rid, r.nano_id AS id, r.rev, n.kind, r.filed_by AS filedBy, r.source, r.created_at AS createdAt
                         FROM revision r JOIN nano n ON n.id = r.nano_id WHERE r.rid = ?`).get(rid);
   if (!r) throw new StoreError(`no nano revision ${rid}`, 404);
-  const picos = db.prepare('SELECT phrase, pico_rid FROM nano_pico WHERE rid = ? ORDER BY phrase').all(rid)
-    .map(p => ({ phrase: p.phrase, pico: refOf(db, p.pico_rid) }));
+  const picos = [
+    ...db.prepare('SELECT phrase, pico_rid FROM nano_pico WHERE rid = ?').all(rid).map(p => ({ phrase: p.phrase, pico: refOf(db, p.pico_rid) })),
+    ...db.prepare('SELECT phrase, pico_ref FROM nano_pico_ref WHERE rid = ?').all(rid).map(p => ({ phrase: p.phrase, pico: p.pico_ref })),
+  ].sort((a, b) => (a.phrase < b.phrase ? -1 : a.phrase > b.phrase ? 1 : 0));
   const implementedBy = [...new Set(db.prepare('SELECT unit_id FROM nano_implementation WHERE rid = ?').pluck().all(rid).map(id => followMoves(db, id)))].sort();
   return { ref: `${r.id}@${r.rev}`, ...r, ...READ[r.kind](db, rid), picos, ...(implementedBy.length && { implementedBy }) };
 }
@@ -515,9 +576,11 @@ export function catalogue(db) {
     c.members = db.prepare('SELECT rid FROM contract_member WHERE crid = ? ORDER BY position').pluck().all(c.crid).map(rid => refOf(db, rid));
     c.parameters = Object.fromEntries(db.prepare('SELECT parameter_rid, value FROM contract_parameter WHERE crid = ?').all(c.crid)
       .map(p => [refOf(db, p.parameter_rid), p.value]));
-    c.includes = db.prepare(`SELECT r.contract_id || '@' || r.rev AS ref, i.mode, i.under_intent_rid, i.base FROM contract_include i
-                             JOIN contract_rev r ON r.crid = i.included_crid WHERE i.crid = ? ORDER BY r.crid`).all(c.crid)
-      .map(i => ({ ref: i.ref, mode: i.mode, base: i.base === 1, under: i.under_intent_rid === null ? null : refOf(db, i.under_intent_rid) }));
+    c.includes = [
+      ...db.prepare(`SELECT r.contract_id || '@' || r.rev AS ref, i.mode, i.under_intent_rid, i.base FROM contract_include i
+                     JOIN contract_rev r ON r.crid = i.included_crid WHERE i.crid = ? ORDER BY r.crid`).all(c.crid),
+      ...db.prepare('SELECT included_ref AS ref, mode, under_intent_rid, base FROM contract_include_ref WHERE crid = ? ORDER BY included_ref').all(c.crid),
+    ].map(i => ({ ref: i.ref, mode: i.mode, base: i.base === 1, under: i.under_intent_rid === null ? null : refOf(db, i.under_intent_rid) }));
     c.breaches = db.prepare('SELECT clause_rid, consequence_rid FROM contract_breach WHERE crid = ? ORDER BY clause_rid, consequence_rid').all(c.crid)
       .map(b => ({ clause: refOf(db, b.clause_rid), consequence: refOf(db, b.consequence_rid) }));
     c.enforcement = db.prepare('SELECT clause_rid, role_id FROM contract_enforcement WHERE crid = ? ORDER BY clause_rid, role_id').all(c.crid)

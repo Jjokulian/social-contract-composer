@@ -547,6 +547,43 @@ test('stores are separate files and one space to compose in', () => {
   assert.throws(() => mergeCatalogues(catalogue(contracts), catalogue(elsewhere)), /is in two stores, and they differ/);
 });
 
+test('a link may cross stores: pinned where it crosses, and resolved when the composition is composed', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'composer-crossing-'));
+  const contracts = openStore(join(dir, 'contracts.sqlite'));
+  const knowledge = openStore(join(dir, 'knowledge.sqlite'));
+  for (const db of [contracts, knowledge]) {
+    addVocabulary(db, 'author', 'planners', 'Planners');
+    addVocabulary(db, 'role', 'council', 'Council');
+    addVocabulary(db, 'unit', 'assessment', 'clinical assessment');
+  }
+  const by = { filedBy: 'planners', source: 'test' };
+
+  // What would check the claim is kept with the body of knowledge, not with the contract.
+  const measure = addNano(knowledge, { ...by, id: 'shade-measured', kind: 'measure', label: 'Shade at noon', unit: 'assessment',
+                                       description: 'How much of the street lies in shade at noon.' }).ref;
+  const body = addContract(knowledge, { ...by, id: 'what-shade-does', scale: 'micro', title: 'What shade does', case: 'proposed',
+                                        members: [measure] }).ref;
+
+  const clause = addNano(contracts, { ...by, id: 'plant-trees', kind: 'clause', role: 'council', modality: 'shall',
+                                      text: 'Plant trees along the street.' }).ref;
+  const intent = addNano(contracts, { ...by, id: 'cool-streets', kind: 'intent', statement: 'The streets are cool in summer.' }).ref;
+  const claim = addNano(contracts, { ...by, id: 'trees-cool-streets', kind: 'claim', from: clause, relation: 'supports', to: intent,
+                                     rationale: 'Shade lowers the temperature beneath it.', measuredBy: [measure] }).ref;
+  assert.deepEqual(catalogue(contracts).nanos[claim].measuredBy, [measure], 'the measure it crosses to is kept as a reference');
+  assert.throws(() => addNano(contracts, { ...by, id: 'loose-claim', kind: 'claim', from: clause, relation: 'supports', to: intent,
+                                           rationale: 'x', measuredBy: ['shade-measured'] }),
+    /name the revision/, 'a crossing reference is pinned: there is no latest to follow in another store');
+
+  // A milli that includes the body of knowledge, stored, not merely drafted on a canvas.
+  const milli = addContract(contracts, { ...by, id: 'street', scale: 'social', title: 'The street', intents: [{ ref: intent }],
+                                         members: [clause, claim], includes: [{ contract: body, mode: 'add' }] }).ref;
+  const space = mergeCatalogues(catalogue(contracts), catalogue(knowledge));
+  assert.deepEqual(space.contracts[milli].includes.map(i => i.ref), [body], 'the include crosses stores');
+  const snap = compose(space, space.contracts[milli]);
+  assert.ok(snap.clauses.includes(clause) && snap.nanos[measure], 'and the composition reaches what it names');
+  assert.ok(snap.claims.some(c => c.ref === claim && c.measuredBy.includes(measure)), 'including how the claim would be checked');
+});
+
 test('relinking follows a pico to the revision its contract defines, and leaves the text alone', () => {
   const { db } = buildFixture();
   const by = { filedBy: 'planners', source: 'test' };
