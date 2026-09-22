@@ -72,6 +72,12 @@ function migrate(db) {
     db.exec('ALTER TABLE demesne_rev ADD COLUMN valid_until TEXT');
     db.exec('ALTER TABLE demesne_rev ADD COLUMN after_drid INTEGER REFERENCES demesne_rev(drid)');
   }
+  // A nano carried from another store keeps its own revision: recreate the rule where it predates that.
+  const consecutive = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'revision_consecutive'").pluck().get();
+  if (consecutive && !consecutive.includes('EXISTS (SELECT 1 FROM revision')) {
+    db.exec('DROP TRIGGER revision_consecutive');
+    db.exec(SCHEMA);
+  }
   // A contract can hold units of software: recreate the member-kind check where it predates them.
   const memberKinds = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'contract_member_kind'").pluck().get();
   if (memberKinds && !memberKinds.includes("'unit'")) { db.exec('DROP TRIGGER contract_member_kind'); db.exec(SCHEMA); }
@@ -231,14 +237,20 @@ const wholeWord = phrase => new RegExp(`(?<![\\p{L}\\p{N}’'-])${phrase.replace
 //   picos: [{ phrase, pico }] — the phrases in its text that refer to which pico revisions, fixed with this revision.
 //          tools/picos.mjs suggests them from the picos' forms.
 //   implementedBy: [unit id] — for the platform's own store: the units of software that implement this pico or nano.
-export function addNano(db, { id, kind, filedBy, source, picos = [], implementedBy = [], ...body }) {
+//   rev:    only for a carry — a nano this store does not have, recorded at the revision it has elsewhere, so its
+//           reference still names it. A store that already holds the nano numbers its own revisions itself.
+export function addNano(db, { id, kind, rev: carried, filedBy, source, picos = [], implementedBy = [], ...body }) {
   const write = WRITE[kind];
   if (!write) throw new StoreError(`unknown kind: ${kind}`);
   return db.transaction(() => {
     const existing = db.prepare('SELECT kind FROM nano WHERE id = ?').pluck().get(id);
     if (existing && existing !== kind) throw new StoreError(`${id} is already a ${existing}`);
     if (!existing) db.prepare('INSERT INTO nano (id, kind) VALUES (?, ?)').run(id, kind);
-    const rev = db.prepare('SELECT COALESCE(MAX(rev), 0) + 1 FROM revision WHERE nano_id = ?').pluck().get(id);
+    const next = db.prepare('SELECT COALESCE(MAX(rev), 0) + 1 FROM revision WHERE nano_id = ?').pluck().get(id);
+    if (carried !== undefined && next !== 1)
+      throw new StoreError(`${id} is already in this store, so it numbers its own revisions: ${id}@${next} is next`);
+    if (carried !== undefined && !(Number.isInteger(carried) && carried >= 1)) throw new StoreError(`not a revision to carry: ${carried}`);
+    const rev = carried ?? next;
     const rid = Number(db.prepare('INSERT INTO revision (nano_id, rev, filed_by, source) VALUES (?, ?, ?, ?)')
       .run(id, rev, filedBy, source).lastInsertRowid);
     write(db, rid, body);

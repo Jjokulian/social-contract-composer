@@ -547,6 +547,32 @@ test('stores are separate files and one space to compose in', () => {
   assert.throws(() => mergeCatalogues(catalogue(contracts), catalogue(elsewhere)), /is in two stores, and they differ/);
 });
 
+test('a nano carried into another store keeps its revision: the reference is its identity', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'composer-carry-'));
+  const here = openStore(join(dir, 'here.sqlite'));
+  const there = openStore(join(dir, 'there.sqlite'));
+  for (const db of [here, there]) {
+    addVocabulary(db, 'author', 'planners', 'Planners');
+    addVocabulary(db, 'role', 'council', 'Council');
+  }
+  const by = { filedBy: 'planners', source: 'test' };
+  const clause = (db, text, rev) => addNano(db, { ...by, id: 'plant-trees', kind: 'clause', role: 'council', modality: 'shall', text, rev }).ref;
+  clause(here, 'Plant trees.');
+  clause(here, 'Plant trees along the street.');
+  const third = clause(here, 'Plant trees along every street.');
+  assert.equal(third, 'plant-trees@3');
+
+  // The other store does not have it, so it records it as it is elsewhere.
+  assert.equal(clause(there, 'Plant trees along every street.', 3), third, 'the same reference in both stores');
+  const space = mergeCatalogues(catalogue(here), catalogue(there));
+  assert.deepEqual(Object.keys(space.nanos).filter(ref => ref.startsWith('plant-trees@')).sort(), ['plant-trees@1', 'plant-trees@2', 'plant-trees@3'],
+    'and the space sees one nano, not two');
+
+  // Once a store holds it, that store numbers its own revisions.
+  assert.throws(() => clause(there, 'Plant nine.', 9), /numbers its own revisions/);
+  assert.equal(clause(there, 'Plant two along every street.'), 'plant-trees@4', 'the next revision follows the one it carried');
+});
+
 test('a link may cross stores: pinned where it crosses, and resolved when the composition is composed', () => {
   const dir = mkdtempSync(join(tmpdir(), 'composer-crossing-'));
   const contracts = openStore(join(dir, 'contracts.sqlite'));

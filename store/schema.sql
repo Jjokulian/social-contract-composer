@@ -345,8 +345,13 @@ CREATE TABLE IF NOT EXISTS contract_enforcement (
 -- ─── Integrity triggers ──────────────────────────────────────────────────────
 
 -- Revisions are numbered 1, 2, 3, … per nano and per contract.
+--
+-- The first revision a store records for a nano may be any number, because a nano carried from another store keeps its
+-- own: a reference is the nano's identity, and the same ref in two stores is the same nano (server/store.mjs). After
+-- that first one, this store's own revisions follow consecutively.
 CREATE TRIGGER IF NOT EXISTS revision_consecutive BEFORE INSERT ON revision
-WHEN NEW.rev <> COALESCE((SELECT MAX(rev) FROM revision WHERE nano_id = NEW.nano_id), 0) + 1
+WHEN EXISTS (SELECT 1 FROM revision WHERE nano_id = NEW.nano_id)
+ AND NEW.rev <> (SELECT MAX(rev) FROM revision WHERE nano_id = NEW.nano_id) + 1
 BEGIN SELECT RAISE(ABORT, 'revision numbers must be consecutive per nano'); END;
 
 CREATE TRIGGER IF NOT EXISTS contract_rev_consecutive BEFORE INSERT ON contract_rev
